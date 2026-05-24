@@ -1,0 +1,20 @@
+{
+	frankenphp
+	order php_server before file_server
+}
+
+:8080 {
+	root * /app
+
+	# Serve real files and folders directly (assets, images, etc.)
+	@static file
+	handle @static {
+		file_server
+	}
+
+	# Route everything else through CodeIgniter's index.php
+	handle {
+		rewrite * /index.php/{path}
+		php_server
+	}
+}
