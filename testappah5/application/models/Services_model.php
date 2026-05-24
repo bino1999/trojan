@@ -22,7 +22,7 @@ class Services_model extends CI_Model
     $this->db->from('services_job as services');
 
     if($filter_service_type) {
-        $this->db->where('services.service_type', $filter_service_type);
+        $this->db->where("FIND_IN_SET('{$filter_service_type}', services.service_type) > 0", null, false);
     }
 
     if(!is_null($currentStatus) && $currentStatus != 'all') {
@@ -78,7 +78,7 @@ class Services_model extends CI_Model
         customers.customers_id AS customer_id, 
         customers.salutation AS salutation, 
         customers.name AS customer_name,
-        customers.mobile AS customer_mobile,
+        customers.mobile AS customer_mobile
     ');
     $this->db->from('vehicles');
     if (!is_null($vehicle_id)) {

@@ -283,3 +283,22 @@ NEW → ONGOING → COMPLETED → APPROVED → INVOICED
 - When changing the top bar: edit `application/views/layout/top_navbar.php`
 - The `.htaccess` sets `CI_ENV=production` — change to `development` locally to see detailed PHP errors
 - Sessions directory must always have 777 permissions on local XAMPP
+
+---
+
+## QA Reports & Bug Fix Logs
+
+These documents record bugs found and fixed in each section. Check them at the start of each session to know what has already been reviewed and what still needs attention.
+
+| Section | Status | Fix Log |
+|---|---|---|
+| Work Base (Dashboard, Quick Bill, Internal Bill, Services Job) | ✅ QA done — bugs fixed | [`docs/qa-fixes-work-base.md`](docs/qa-fixes-work-base.md) |
+| Purchasing (Supplier, Purchase Order, Stock, Products) | ⏳ Not yet reviewed | — |
+| Wallet (Payments, Cash, Bank, Credit, Loan, Expenses) | ⏳ Not yet reviewed | — |
+| General (Service Packages, Members, Settings) | ⏳ Not yet reviewed | — |
+| Others (Customers, Vehicles) | ⏳ Not yet reviewed | — |
+| Reports | ⏳ Not yet reviewed | — |
+| Admin Panel (Roles, Users) | ⏳ Not yet reviewed | — |
+| Dashboard | ⏳ Not yet reviewed | — |
+
+> **Before starting improvements:** all sections above should be ✅. Fix bugs first, then improve.
