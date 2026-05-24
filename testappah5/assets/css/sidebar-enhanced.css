@@ -1,0 +1,291 @@
+/* Enhanced Sidebar Styling */
+.sidebar-enhanced {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+/* Sidebar logo sizing and behavior */
+.sidebar-enhanced .navbar-brand-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+.sidebar-enhanced .navbar-brand-box .logo img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+.sidebar-enhanced .navbar-brand-box .logo .logo-lg img {
+    max-height: 48px;
+}
+
+.sidebar-enhanced .navbar-brand-box .logo .logo-sm img {
+    max-height: 40px;
+}
+
+/* Collapsed (mini) sidebar shows small logo and keeps it centered */
+html[data-sidebar-size="sm"] .sidebar-enhanced .navbar-brand-box .logo-lg { display: none !important; }
+html[data-sidebar-size="sm"] .sidebar-enhanced .navbar-brand-box .logo-sm { display: inline-block !important; }
+html[data-sidebar-size="sm"] .sidebar-enhanced .navbar-brand-box { height: 64px; }
+
+/* Icons-only mode when collapsed */
+html[data-sidebar-size="sm"] .sidebar-enhanced {
+    width: 78px;
+}
+html[data-sidebar-size="sm"] .sidebar-enhanced .main-category-header {
+    justify-content: center;
+    padding: 0.875rem 0.5rem;
+}
+html[data-sidebar-size="sm"] .sidebar-enhanced .main-category-header span,
+html[data-sidebar-size="sm"] .sidebar-enhanced .main-category-header .dropdown-arrow {
+    display: none !important;
+}
+html[data-sidebar-size="sm"] .sidebar-enhanced .submenu {
+    display: none !important;
+}
+html[data-sidebar-size="sm"] .sidebar-enhanced .main-category { margin-bottom: 0.25rem; }
+html[data-sidebar-size="sm"] .sidebar-enhanced .main-category-header i { margin-right: 0; font-size: 1.25rem; }
+
+.sidebar-enhanced .sidebar-brand {
+    padding: 1.5rem 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 1rem;
+}
+
+.sidebar-enhanced .sidebar-brand h4 {
+    color: white;
+    font-weight: 600;
+    margin: 0;
+    text-align: center;
+}
+
+/* Main Category Styling */
+.sidebar-enhanced .main-category {
+    margin-bottom: 0.5rem;
+}
+
+.sidebar-enhanced .main-category-header {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    width: 100%;
+    padding: 1rem 1.5rem;
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 8px;
+    margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.sidebar-enhanced .main-category-header:hover {
+    background: rgba(255,255,255,0.2);
+    transform: translateX(5px);
+}
+
+.sidebar-enhanced .main-category-header.active {
+    background: rgba(255,255,255,0.25);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.sidebar-enhanced .main-category-header i {
+    font-size: 1.2rem;
+    margin-right: 0.75rem;
+    width: 20px;
+    text-align: center;
+}
+
+.sidebar-enhanced .main-category-header .dropdown-arrow {
+    transition: transform 0.3s ease;
+    font-size: 0.9rem;
+}
+
+.sidebar-enhanced .main-category-header.active .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+/* Submenu Styling */
+.sidebar-enhanced .submenu {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    background: rgba(0,0,0,0.1);
+    border-radius: 0 0 8px 8px;
+    margin-top: -0.25rem;
+}
+
+.sidebar-enhanced .submenu.open {
+    max-height: 1000px;
+    display: block !important;
+    visibility: visible !important;
+}
+
+.sidebar-enhanced .submenu-item {
+    display: block;
+    padding: 0.75rem 1.5rem;
+    color: rgba(255,255,255,0.9);
+    text-decoration: none;
+    transition: all 0.3s ease;
+    border-left: 3px solid transparent;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-enhanced .submenu-item:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border-left-color: rgba(255,255,255,0.5);
+    transform: translateX(5px);
+}
+
+.sidebar-enhanced .submenu-item.active {
+    background: rgba(255,255,255,0.15);
+    color: white;
+    border-left-color: white;
+    font-weight: 500;
+}
+
+/* Job Invoices Highlight */
+.sidebar-enhanced .submenu-item.job-invoices-highlight {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+    border-left: 3px solid #22c55e;
+    font-weight: 600;
+}
+
+.sidebar-enhanced .submenu-item.job-invoices-highlight:hover {
+    background: rgba(34, 197, 94, 0.3);
+    color: #16a34a;
+    border-left-color: #16a34a;
+    transform: translateX(5px);
+}
+
+.sidebar-enhanced .submenu-item.job-invoices-highlight.active {
+    background: rgba(34, 197, 94, 0.4);
+    color: #15803d;
+    border-left-color: #15803d;
+}
+
+/* Submenu Section Styling */
+.sidebar-enhanced .submenu-section {
+    margin: 0.5rem 0;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar-enhanced .submenu-section:last-child {
+    border-bottom: none;
+}
+
+.sidebar-enhanced .submenu-section-title {
+    color: rgba(255,255,255,0.7);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.5rem 1.5rem 0.25rem 1.5rem;
+    margin-bottom: 0.25rem;
+    border-left: 2px solid rgba(255,255,255,0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Make section titles clearly non-interactive */
+.sidebar-enhanced .submenu-section-title {
+    cursor: not-allowed; /* clearly non-clickable */
+    pointer-events: none; /* ignore clicks */
+    user-select: none;
+    opacity: 0.75; /* more muted than links */
+    background: rgba(255,255,255,0.06);
+    border-left-color: rgba(255,255,255,0.15);
+}
+
+/* Ensure headings never show hover-like feedback */
+.sidebar-enhanced .submenu-section-title:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+/* Indent items under each subheading for clearer grouping */
+.sidebar-enhanced .submenu-section .submenu-item {
+    padding-left: 2.25rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .sidebar-enhanced {
+        position: fixed;
+        left: -280px;
+        width: 280px;
+        z-index: 1000;
+        transition: left 0.3s ease;
+    }
+    
+    .sidebar-enhanced.mobile-open {
+        left: 0;
+    }
+    
+    .sidebar-enhanced .main-category-header {
+        padding: 0.875rem 1.25rem;
+        font-size: 1rem;
+    }
+    
+    .sidebar-enhanced .submenu-item {
+        padding: 0.625rem 1.25rem 0.625rem 3rem;
+        font-size: 0.9rem;
+    }
+}
+
+/* Animation for smooth transitions */
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sidebar-enhanced .submenu.open .submenu-item {
+    animation: slideDown 0.3s ease forwards;
+}
+
+.sidebar-enhanced .submenu.open .submenu-item:nth-child(1) { animation-delay: 0.1s; }
+.sidebar-enhanced .submenu.open .submenu-item:nth-child(2) { animation-delay: 0.15s; }
+.sidebar-enhanced .submenu.open .submenu-item:nth-child(3) { animation-delay: 0.2s; }
+.sidebar-enhanced .submenu.open .submenu-item:nth-child(4) { animation-delay: 0.25s; }
+.sidebar-enhanced .submenu.open .submenu-item:nth-child(5) { animation-delay: 0.3s; }
+
+/* Custom scrollbar for submenu */
+.sidebar-enhanced .submenu::-webkit-scrollbar {
+    width: 4px;
+}
+
+.sidebar-enhanced .submenu::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+}
+
+.sidebar-enhanced .submenu::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.3);
+    border-radius: 2px;
+}
+
+.sidebar-enhanced .submenu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.5);
+}

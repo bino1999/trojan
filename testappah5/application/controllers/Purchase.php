@@ -1,0 +1,1611 @@
+<?php
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Purchase extends MY_Controller
+{
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->model('purchase_model');
+        $this->load->model('wallet_model');
+    }
+
+    public function purchaseManage() {
+        $this->require_permission('purchase.view');
+        $data['mainMenuName'] = 'Purchase Order';
+        $data['subMenuName'] = 'purchase-manage';
+
+        $data['suppliers'] = $this->purchase_model->loadActiveSuppliers();
+        $data['products'] = $this->purchase_model->loadActiveProducts();
+        $data['productCategories'] = $this->purchase_model->loadProductCategories();
+        $data['productBrands'] = $this->purchase_model->loadProductBrands();
+        $this->load->view('layout/header');
+        $this->load->view('layout/top_navbar');
+        $this->load->view('layout/left_sidebar', $data);
+        $this->load->view('purchase/purchase-manage', $data);
+        $this->load->view('layout/footer');
+    }
+
+    public function filterProducts() {
+        $this->require_permission('purchase.view');
+        $category_id = $this->input->post('category_id');
+        $brand_id = $this->input->post('brand_id');
+
+        $data['products'] = $this->purchase_model->loadActiveProductsByCategoryBrand($category_id, $brand_id);
+        $this->load->view('purchase/product-filter-list', $data);
+    }
+
+    public function createPurchase()
+{
+    $this->require_permission('purchase.create');
+    $supplier_id = $this->input->post('supplier_id');
+    $bill_no = trim($this->input->post('bill_no'));
+    $bill_date = $this->input->post('bill_date');
+    $payment_method = $this->input->post('payment_method');
+    $description = trim($this->input->post('description'));
+    $vat_type = $this->input->post('vat_type');
+    $vat_percent = $this->input->post('vat_percent');
+
+    if (!$supplier_id || !$bill_no || !$bill_date) {
+        echo json_encode(['status' => 'error', 'message' => 'Please fill all required fields.']);
+        return;
+    }
+
+    if(!$payment_method){
+        echo json_encode(['status' => 'error', 'message' => 'Please select a payment method.']);
+        return;
+    }
+
+    if ($vat_type == 'vat_whole' || $vat_type == 'vat_per_item') {
+        if ($vat_percent === '' || !is_numeric($vat_percent) || $vat_percent < 0 || $vat_percent > 100) {
+            echo json_encode(['status' => 'error', 'message' => 'Please enter a valid VAT percent (0 - 100).']);
+            return;
+        }
+    } else {
+        $vat_percent = 0;
+    }
+
+    if($payment_method == 'cash'){
+        $payment_method = 1;
+    }else if($payment_method == 'cheque'){
+        $payment_method = 2;
+    }else if($payment_method == 'card'){
+        $payment_method = 3;
+    }else if($payment_method == 'credit'){
+        $payment_method = 4;
+    }else if($payment_method == 'bank_transfer'){
+        $payment_method = 5;
+    }else{
+        $payment_method = 0;
+    }
+
+    $data = [
+        'supplier_id' => $supplier_id,
+        'bill_no' => $bill_no,
+        'bill_date' => $bill_date,
+        'intended_payment_method' => $payment_method,
+        'vat_type' => $vat_type,
+        'vat_percent' => $vat_percent,
+        'description' => $description,
+        'created_by' => $this->session->userdata('userid'),
+        'created_at' => date('Y-m-d H:i:s')
+    ];
+
+    $this->db->insert('purchase_orders', $data);
+    echo json_encode(['status' => 'success', 'message' => 'Purchase order created.']);
+}
+
+public function updatePurchase()
+{
+    $this->require_permission('purchase.edit');
+    $po_id = $this->input->post('edit_po_id');
+    $supplier_id = $this->input->post('edit_supplier_id');
+    $bill_no = trim($this->input->post('edit_bill_no'));
+    $bill_date = $this->input->post('edit_bill_date');
+    $payment_method = $this->input->post('edit_payment_method');
+    $description = trim($this->input->post('edit_description'));
+    $vat_type = $this->input->post('edit_vat_type');
+    $vat_percent = $this->input->post('edit_vat_percent');
+    $original_status = $this->input->post('edit_original_status');
+
+    if (!$po_id || !$supplier_id || !$bill_no || !$bill_date) {
+        echo json_encode(['status' => 'error', 'message' => 'Please fill all required fields.']);
+        return;
+    }
+
+    if(!$payment_method){
+        echo json_encode(['status' => 'error', 'message' => 'Please select a payment method.']);
+        return;
+    }
+
+    if ($vat_type == 'vat_whole' || $vat_type == 'vat_per_item') {
+        if ($vat_percent === '' || !is_numeric($vat_percent) || $vat_percent < 0 || $vat_percent > 100) {
+            echo json_encode(['status' => 'error', 'message' => 'Please enter a valid VAT percent (0 - 100).']);
+            return;
+        }
+    } else {
+        $vat_percent = 0;
+    }
+
+    if($payment_method == 'cash'){
+        $payment_method = 1;
+    }else if($payment_method == 'cheque'){
+        $payment_method = 2;
+    }else if($payment_method == 'card'){
+        $payment_method = 3;
+    }else if($payment_method == 'credit'){
+        $payment_method = 4;
+    }else if($payment_method == 'bank_transfer'){
+        $payment_method = 5;
+    }else{
+        $payment_method = 0;
+    }
+
+    // Get current PO data for stock adjustment
+    $current_po = $this->purchase_model->getPurchaseOrder($po_id);
+    if (!$current_po) {
+        echo json_encode(['status' => 'error', 'message' => 'Purchase order not found.']);
+        return;
+    }
+
+    // If supplier changed and PO is completed, we need to adjust stock
+    if ($original_status == 'Completed' && $current_po->supplier_id != $supplier_id) {
+        // Remove stock from old supplier's items
+        $this->purchase_model->adjustStockForSupplierChange($po_id, $current_po->supplier_id, $supplier_id);
+    }
+
+    $data = [
+        'supplier_id' => $supplier_id,
+        'bill_no' => $bill_no,
+        'bill_date' => $bill_date,
+        'intended_payment_method' => $payment_method,
+        'vat_type' => $vat_type,
+        'vat_percent' => $vat_percent,
+        'description' => $description
+    ];
+
+    // Debug logging
+    error_log("PO Update - Data: " . json_encode($data));
+    
+    $this->db->where('po_id', $po_id);
+    $update = $this->db->update('purchase_orders', $data);
+
+    if ($update) {
+        echo json_encode(['status' => 'success', 'message' => 'Purchase order updated successfully.']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Failed to update purchase order.']);
+    }
+}
+
+public function loadPurchases()
+{
+    $sdate = $this->input->post('sdate');
+    $edate = $this->input->post('edate');
+    $supplier_id = $this->input->post('supplier_id');
+
+    $data['purchases'] = $this->purchase_model->loadPurchases($sdate, $edate, $supplier_id);
+    $this->load->view('purchase/purchase-manage-list', $data);
+}
+
+public function loadEditPoItems()
+{
+    $po_id = $this->input->post('po_id');
+    $data['po_items'] = $this->purchase_model->loadPurchaseOrderItems($po_id);
+    $this->load->view('purchase/edit-po-items-list', $data);
+}
+
+public function updatePoItem()
+{
+    $po_item_id = $this->input->post('edit_po_item_id');
+    $po_id = $this->input->post('edit_po_id');
+    $product_id = $this->input->post('edit_product_id');
+    $quantity = (float)$this->input->post('edit_quantity');
+    $company_price = (float)$this->input->post('edit_company_price');
+    $sale_price = (float)$this->input->post('edit_sale_price');
+    $discount_percent = (float)$this->input->post('edit_discount_percent');
+    $discount_amount = (float)$this->input->post('edit_discount_amount');
+    $uom = $this->input->post('edit_uom');
+    $inventory_type = $this->input->post('edit_inventory_type');
+    $rack_no = $this->input->post('edit_rack_no');
+    $bin_no = $this->input->post('edit_bin_no');
+    $reorder_level = $this->input->post('edit_reorder_level');
+    $purchase_date = $this->input->post('edit_purchase_date');
+    $note = $this->input->post('edit_note');
+
+    // Get original values for stock calculation
+    $original_quantity = (float)$this->input->post('edit_original_quantity');
+    $original_company_price = (float)$this->input->post('edit_original_company_price');
+    $original_sale_price = (float)$this->input->post('edit_original_sale_price');
+
+    // Debug logging
+    error_log("PO Item Update - po_item_id: $po_item_id, po_id: $po_id, product_id: $product_id");
+    error_log("PO Item Update - Data: " . json_encode($data));
+
+    // Validation
+    if (!$po_item_id || !$product_id || $quantity <= 0 || $company_price <= 0 || $sale_price <= 0) {
+        echo json_encode(['status' => 'error', 'message' => 'Please fill all required fields with valid values.']);
+        return;
+    }
+
+    if ($sale_price < $company_price) {
+        echo json_encode(['status' => 'error', 'message' => 'Sale price must not be less than company price.']);
+        return;
+    }
+
+    if ($discount_percent > 0 && $discount_amount > 0) {
+        echo json_encode(['status' => 'error', 'message' => 'Only one of discount percent or amount can be entered.']);
+        return;
+    }
+
+    // Check if PO is completed for stock adjustment
+    $po_details = $this->purchase_model->getPurchaseOrder($po_id);
+    $is_completed = ($po_details && $po_details->status == 'Completed');
+
+    // Calculate stock adjustment
+    $quantity_diff = $quantity - $original_quantity;
+
+    $data = [
+        'product_id' => $product_id,
+        'quantity' => $quantity,
+        'company_price' => $company_price,
+        'sale_price' => $sale_price,
+        'discount_percent' => $discount_percent,
+        'discount_amount' => $discount_amount,
+        'uom' => $uom,
+        'inventory_type' => $inventory_type,
+        'rack_no' => $rack_no,
+        'bin_no' => $bin_no,
+        'reorder_level' => $reorder_level,
+        'purchase_date' => $purchase_date,
+        'note' => $note
+    ];
+
+    // Remove empty values to avoid database errors
+    $data = array_filter($data, function($value) {
+        return $value !== '' && $value !== null;
+    });
+
+    // Update the PO item
+    $this->db->where('po_item_id', $po_item_id);
+    $update = $this->db->update('purchase_order_items', $data);
+
+    if ($update) {
+        // If PO is completed, adjust stock
+        if ($is_completed && $quantity_diff != 0) {
+            $this->purchase_model->adjustStockForItemChange($po_item_id, $quantity_diff);
+        }
+
+        // Update available_stock to match the new quantity (for non-completed POs)
+        if (!$is_completed) {
+            $this->purchase_model->updateAvailableStockForItem($po_item_id, $quantity);
+        }
+
+        // Debug logging
+        error_log("PO Item updated successfully - po_item_id: $po_item_id, new_quantity: $quantity, is_completed: " . ($is_completed ? 'yes' : 'no'));
+
+        echo json_encode(['status' => 'success', 'message' => 'Item updated successfully.']);
+    } else {
+        // Get database error for debugging
+        $db_error = $this->db->error();
+        error_log("Database update error: " . json_encode($db_error));
+        echo json_encode(['status' => 'error', 'message' => 'Failed to update item. Database error: ' . $db_error['message']]);
+    }
+}
+
+public function deletePoItem()
+{
+    $po_item_id = $this->input->post('po_item_id');
+    
+    if (!$po_item_id) {
+        echo json_encode(['status' => 'error', 'message' => 'Invalid item ID']);
+        return;
+    }
+
+    // Get item details for stock adjustment
+    $item_details = $this->purchase_model->getPoItem($po_item_id);
+    if (!$item_details) {
+        echo json_encode(['status' => 'error', 'message' => 'Item not found']);
+        return;
+    }
+
+    // Check if PO is completed for stock adjustment
+    $po_details = $this->purchase_model->getPurchaseOrder($item_details->po_id);
+    $is_completed = ($po_details && $po_details->status == 'Completed');
+
+    // If PO is completed, reduce stock
+    if ($is_completed) {
+        $this->purchase_model->reduceStockForItem($po_item_id, $item_details->quantity);
+    }
+
+    // Delete the item
+    $deleted = $this->purchase_model->deletePurchaseOrderItem($po_item_id);
+
+    if ($deleted) {
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Failed to delete item']);
+    }
+}
+
+public function addPurchaseOrderItem()
+{
+    $company_price = (float)$this->input->post('company_price');
+    $sale_price = (float)$this->input->post('sale_price');
+    $discount_percent = (float)$this->input->post('discount_percent');
+    $discount_amount = (float)$this->input->post('discount_amount');
+
+    // Business Rule 1: Sale price must not be less than company price
+    if ($sale_price < $company_price) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Sale price must not be less than company price.'
+        ]);
+        return;
+    }
+
+    // Business Rule 2a: If sale price equals company price, a discount is required
+    if ($sale_price === $company_price && ($discount_percent <= 0 && $discount_amount <= 0)) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'When sale price equals company price, enter Discount % or Discount Amount.'
+        ]);
+        return;
+    }
+
+    // Business Rule 2b: Only one discount method allowed
+    if ($discount_percent > 0 && $discount_amount > 0) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Only one of discount percent or amount can be entered.'
+        ]);
+        return;
+    }
+
+    if (!$this->input->post('product_id') > 0) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Please select a product.'
+        ]);
+        return;
+    }
+
+    $genuine = $this->input->post('genuine') !== null ? 1 : 0;
+
+    // Derive inventory type from product definition (fallback to 'sale')
+    $this->db->select('inventory_type');
+    $this->db->from('products');
+    $this->db->where('product_id', $this->input->post('product_id'));
+    $productRow = $this->db->get()->row();
+    $derivedInventoryType = isset($productRow->inventory_type) && in_array(strtolower($productRow->inventory_type), ['sale','internal','both'])
+        ? strtolower($productRow->inventory_type)
+        : 'sale';
+
+    $insertData = [
+        'po_id'            => $this->input->post('po_id'),
+        'supplier_id'      => $this->input->post('supplier_id'),
+        'product_id'       => $this->input->post('product_id'),
+        'purchase_date'    => $this->input->post('purchase_date'),
+        'genuine'          => $genuine,
+        'uom'              => $this->input->post('uom'),
+        // Inventory type is now derived from product; defaulting to 'sale' for all
+        'inventory_type'   => $derivedInventoryType,
+        'quantity'         => $this->input->post('quantity'),
+        'discount_percent' => $discount_percent,
+        'discount_amount'  => $discount_amount,
+        'company_price'    => $company_price,
+        'sale_price'       => $sale_price,
+        'rack_no'          => $this->input->post('rack_no'),
+        'bin_no'           => $this->input->post('bin_no'),
+        'reorder_level'    => $this->input->post('reorder_level'),
+        'note'             => $this->input->post('note'),
+        'created_at'       => date('Y-m-d H:i:s'),
+        'created_by'       => $this->session->userdata('userid'),
+        'available_stock' => $this->input->post('quantity')
+    ];
+
+    $this->load->model('purchase_model');
+    $insertId = $this->purchase_model->addPurchaseOrderItem($insertData);
+
+    if ($insertId) {
+        // Optional: Log the activity
+        $this->load->model('logs_model');
+        $this->logs_model->log_activity('Inventory Item Added', 'Product ID: ' . $this->input->post('product_id'));
+
+        echo json_encode(['status' => 'success', 'message' => 'Item added successfully.']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Failed to add item.']);
+    }
+}
+
+public function loadPurchaseOrderItems(){
+    $po_id = $this->input->post('po_id');
+   
+      $data['purchases'] = $this->purchase_model->loadPurchaseOrderItems($po_id);
+       $this->load->view('purchase/purchase-order-item-list', $data);
+   }
+
+   public function loadPurchaseOrderItems2(){
+
+    $po_id = $this->input->post('po_id');
+   
+      $data['purchases'] = $this->purchase_model->loadPurchaseOrderItems($po_id);
+       $this->load->view('purchase/purchase-order-item-list-2', $data);
+   }
+
+public function deletePurchaseOrderItem($po_item_id = null)
+{
+    if (!$this->input->is_ajax_request()) {
+        show_error('No direct script access allowed');
+    }
+
+    if ($po_item_id && is_numeric($po_item_id)) {
+        $deleted = $this->purchase_model->deletePurchaseOrderItem($po_item_id);
+        if ($deleted) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to delete item']);
+        }
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Invalid ID']);
+    }
+}
+
+public function completePurchaseOrder()
+{
+    $po_id = $this->input->post('po_id');
+    $grand_total = $this->input->post('grand_total');
+
+    if (!$po_id) {
+        echo json_encode(['status' => 'error', 'message' => 'Invalid Purchase Order ID']);
+        return;
+    }
+    
+    // Fallback: compute total on server if not provided or invalid
+    if ($grand_total === null || $grand_total === '' || !is_numeric($grand_total) || (float)$grand_total <= 0) {
+        $items = $this->purchase_model->loadPurchaseOrderItems($po_id);
+        $computedTotal = 0.0;
+        $vatAmount = 0.0;
+        $vatType = !empty($items) ? ($items[0]->vat_type ?? 'none') : 'none';
+        $vatPercent = 0.0;
+        if (!empty($items)) {
+            $vatPercent = isset($items[0]->vat_percent) && is_numeric($items[0]->vat_percent) ? (float)$items[0]->vat_percent : 0.0;
+        }
+
+        foreach ($items as $item) {
+            $qty = (float)($item->quantity ?? 0);
+            $price = (float)($item->company_price ?? 0);
+            $discountPercent = (float)($item->discount_percent ?? 0);
+            $discountAmount = (float)($item->discount_amount ?? 0);
+
+            $lineDiscount = 0.0;
+            if ($discountPercent > 0) {
+                $lineDiscount = ($price * $discountPercent) / 100.0;
+            } elseif ($discountAmount > 0) {
+                $lineDiscount = $discountAmount;
+            }
+
+            $netPrice = max($price - $lineDiscount, 0);
+            $lineTotal = $netPrice * $qty;
+            $computedTotal += $lineTotal;
+
+            if ($vatType === 'vat_per_item' && $vatPercent > 0) {
+                $vatAmount += ($lineTotal * ($vatPercent / 100.0));
+            }
+        }
+
+        if ($vatType === 'vat_whole' && $vatPercent > 0) {
+            $vatAmount = $computedTotal * ($vatPercent / 100.0);
+        }
+
+        $grand_total = $computedTotal + $vatAmount;
+    }
+
+    $this->db->where('po_id', $po_id);
+    $update = $this->db->update('purchase_orders', [
+        'total_amount' => (float)$grand_total,
+        'status' => 'Completed',
+        'completed_at' => date('Y-m-d H:i:s'),
+        'completed_by' => $this->session->userdata('userid') // if using session
+    ]);
+
+    if ($update) {
+        // Update available_stock for all items in this PO to match their quantity
+        $this->purchase_model->updateAvailableStockForCompletedPO($po_id);
+        
+        echo json_encode(['status' => 'success', 'message' => 'Purchase order marked as complete.']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Failed to update purchase order.']);
+    }
+}
+
+public function deletePurchase()
+{
+    $this->require_permission('purchase.delete');
+    $po_id = $this->input->post('po_id');
+
+    if (!$po_id) {
+        echo json_encode(['status' => 'error', 'message' => 'Invalid ID']);
+        return;
+    }
+
+    // Get PO details to check if it's completed
+    $po_details = $this->purchase_model->getPurchaseOrder($po_id);
+    if (!$po_details) {
+        echo json_encode(['status' => 'error', 'message' => 'Purchase order not found']);
+        return;
+    }
+
+    $this->db->trans_start();
+
+    // If PO is completed, we need to adjust stock before deletion
+    if ($po_details->status == 'Completed') {
+        // Get all items in this PO
+        $po_items = $this->purchase_model->loadPurchaseOrderItems($po_id);
+        
+        foreach ($po_items as $item) {
+            // Reduce the available stock for each item
+            $this->purchase_model->reduceStockForItem($item->po_item_id, $item->quantity);
+        }
+    }
+
+    // Delete items first
+    $this->db->where('po_id', $po_id);
+    $this->db->delete('purchase_order_items');
+
+    // Then delete the purchase order
+    $this->db->where('po_id', $po_id);
+    $this->db->delete('purchase_orders');
+
+    $this->db->trans_complete();
+
+    if ($this->db->trans_status()) {
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Database error occurred.']);
+    }
+}
+
+public function purchaseHistoryManage() {
+    $this->require_permission('purchase.view');
+    $data['mainMenuName'] = 'Purchase Order';
+    $data['subMenuName'] = 'purchase-history-manage';
+
+    $data['suppliers'] = $this->purchase_model->loadActiveSuppliers();
+    $data['products'] = $this->purchase_model->loadActiveProducts();
+    
+    $this->load->view('layout/header');
+    $this->load->view('layout/top_navbar');
+    $this->load->view('layout/left_sidebar', $data);
+    $this->load->view('purchase/purchase-history-manage', $data);
+    $this->load->view('layout/footer');
+}
+
+
+public function stockManage() {
+        $this->require_permission('stock.view');
+        $data['mainMenuName'] = 'Purchase Order';
+        $data['subMenuName'] = 'item-stock';
+
+ 
+        $data['suppliers'] = $this->purchase_model->loadActiveSuppliers();
+        $data['products'] = $this->purchase_model->loadActiveProducts();
+        $data['productCategories'] = $this->purchase_model->loadProductCategories();
+        $data['productBrands'] = $this->purchase_model->loadProductBrands();
+        $this->load->view('layout/header');
+        $this->load->view('layout/top_navbar');
+        $this->load->view('layout/left_sidebar', $data);
+        $this->load->view('stock/stock-manage', $data);
+        $this->load->view('layout/footer');
+    }
+
+    public function loadAvailableStock()
+{
+    $sdate = $this->input->post('sdate');
+    $edate = $this->input->post('edate');
+    $category_id = $this->input->post('category_id');
+    $brand_id = $this->input->post('brand_id');
+    $supplier_id = $this->input->post('supplier_id');
+
+    // Check if dates are provided
+    $has_date_filter = !empty($sdate) && !empty($edate);
+    
+    if ($has_date_filter) {
+        // Validate date only if dates are provided
+        if (strtotime($sdate) <= strtotime('2025-04-31')) {
+            echo "Start date should be after 2025-04-31";
+            return;
+        }
+        
+        // Define open balance date range for date-filtered reports
+        $data['openBalanceSdate'] = '2025-03-01';
+        $data['openBalanceEdate'] = date('Y-m-d', strtotime($sdate . ' -1 day'));
+    } else {
+        // For no date filter, use a very early date to get all records
+        $sdate = '2025-05-01';
+        $edate = date('Y-m-d');
+        $data['openBalanceSdate'] = '2025-03-01';
+        $data['openBalanceEdate'] = '2025-04-30';
+    }
+
+    // Step 1: Get filtered product purchase list
+    $products = $this->purchase_model->loadPurchaseProductsAsGroup($category_id, $brand_id, $supplier_id);
+    
+    // If no products found with filters, return empty result
+    if (empty($products)) {
+        $data['stock'] = [];
+        $this->load->view('stock/available-stock-list', $data);
+        return;
+    }
+    
+    $product_ids = array_column($products, 'product_id');
+
+    // Step 2: Get stock summary for date range
+    $stock_summary = $this->purchase_model->getStockInOutSummary($product_ids, $sdate, $edate);
+
+    // Step 3: Loop and enrich each product row
+    foreach ($products as &$p) {
+        $pid = $p->product_id;
+
+        // Open balance (as of sdate)
+        $open_balance = $this->purchase_model->getOpenBalance($pid, $sdate);
+
+        // Stock movements
+        $stock_in = $stock_summary[$pid]['stock_in'] ?? 0;
+        $job_out = $stock_summary[$pid]['job_out'] ?? 0;
+        $bill_out = $stock_summary[$pid]['bill_out'] ?? 0;
+        $stock_out = $job_out + $bill_out;
+
+        // Closing balance
+        $closing = $open_balance + $stock_in - $stock_out;
+
+        // Assign to product object
+        $p->open_balance = $open_balance;
+        $p->stock_in = $stock_in;
+        $p->stock_out = $stock_out;
+        $p->closing_balance = $closing;
+    }
+    unset($p);
+
+    // Step 4: Pass data to view
+    $data['stock'] = $products;
+    $data['has_date_filter'] = $has_date_filter;
+    $this->load->view('stock/available-stock-list', $data);
+}
+
+    // =====================================================
+    // PAYMENT SYSTEM METHODS
+    // =====================================================
+
+    public function loadPoPayments()
+    {
+        $po_id = $this->input->post('po_id');
+        
+        if (!$po_id) {
+            echo json_encode(['status' => 'error', 'message' => 'PO ID is required']);
+            return;
+        }
+
+        $payments = $this->purchase_model->getPoPayments($po_id);
+        $po = $this->purchase_model->getPurchaseOrder($po_id);
+        
+        if (!$po) {
+            echo json_encode(['status' => 'error', 'message' => 'Purchase order not found']);
+            return;
+        }
+
+        // Get supplier name
+        $supplier = $this->purchase_model->getSupplierById($po->supplier_id);
+        $po->supplier_name = $supplier ? $supplier->supplier_name : 'Unknown Supplier';
+
+        $data = [
+            'payments' => $payments,
+            'po' => $po,
+            'payment_methods' => ['Cash', 'Card', 'Cheque', 'Credit', 'Bank Transfer']
+        ];
+
+        $this->load->view('purchase/po-payments-modal', $data);
+    }
+
+    public function addPoPayment()
+    {
+        $po_id = $this->input->post('po_id');
+        $payment_method = $this->input->post('payment_method');
+        $paid_amount = $this->input->post('paid_amount');
+        $card_or_cheque_no = $this->input->post('card_or_cheque_no');
+        $cheque_date = $this->input->post('cheque_date');
+        $bank_name = $this->input->post('bank_name');
+        $note = $this->input->post('note');
+        $credit_person_name = $this->input->post('credit_person_name');
+        $credit_person_phone = $this->input->post('credit_person_phone');
+
+        if (!$po_id || !$payment_method || !$paid_amount) {
+            echo json_encode(['status' => 'error', 'message' => 'Required fields are missing']);
+            return;
+        }
+
+        // Block adding payments if already confirmed
+        $po = $this->purchase_model->getPurchaseOrder($po_id);
+        if ($po && isset($po->payment_status) && strtolower($po->payment_status) === 'completed') {
+            echo json_encode(['status' => 'error', 'message' => 'Payments already confirmed. No further payments allowed.']);
+            return;
+        }
+
+        // Validate payment method specific fields
+        if (strtolower($payment_method) === 'card' || strtolower($payment_method) === 'bank transfer') {
+            if (empty($card_or_cheque_no) || empty($bank_name)) {
+                echo json_encode(['status' => 'error', 'message' => 'Receipt/Transaction ID and Bank Name are required']);
+                return;
+            }
+        } elseif (strtolower($payment_method) === 'cheque') {
+            if (empty($card_or_cheque_no) || empty($cheque_date) || empty($bank_name)) {
+                echo json_encode(['status' => 'error', 'message' => 'Cheque Number, Date and Bank Name are required']);
+                return;
+            }
+        } elseif (strtolower($payment_method) === 'credit') {
+            // No validation needed for credit payments in PO as we are the ones paying the supplier
+        }
+
+        // Start transaction for credit payment processing
+        $this->db->trans_start();
+
+        try {
+            $payment_data = [
+                'po_id' => $po_id,
+                'payment_method' => $payment_method,
+                'paid_amount' => $paid_amount,
+                'card_or_cheque_no' => $card_or_cheque_no ?: null,
+                'cheque_date' => $cheque_date ?: null,
+                'bank_name' => $bank_name ?: null,
+                'note' => $note ?: null,
+                'created_by' => $this->session->userdata('userid')
+            ];
+
+            $this->db->insert('purchase_order_payments', $payment_data);
+            
+            if ($this->db->affected_rows() <= 0) {
+                throw new Exception('Failed to add payment record');
+            }
+
+            // Handle credit payment - create account transaction
+            if (strtolower($payment_method) === 'credit') {
+                // Get supplier information for the credit transaction
+                $supplier = $this->purchase_model->getSupplierById($po->supplier_id);
+                
+                // Create credit transaction in account_transactions
+                $creditTransactionData = [
+                    'account_slug' => 'credits',
+                    'txn_type' => 'credit',
+                    'amount' => $paid_amount,
+                    'description' => 'Purchase Order Credit - ' . $credit_person_name . ' - PO #' . $po_id,
+                    'reference_type' => 'purchase_order',
+                    'reference_id' => $po_id,
+                    'customer_id' => null, // POs are for suppliers, not customers
+                    'created_by' => $this->session->userdata('userid'),
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s')
+                ];
+
+                $this->db->insert('account_transactions', $creditTransactionData);
+                
+                if ($this->db->affected_rows() <= 0) {
+                    $dbError = $this->db->error();
+                    error_log("Credit transaction insert failed. Error: " . print_r($dbError, true));
+                    error_log("Credit transaction data: " . print_r($creditTransactionData, true));
+                    throw new Exception('Failed to create credit transaction: ' . (isset($dbError['message']) ? $dbError['message'] : 'Unknown database error'));
+                }
+
+                // Update credits account balance
+                $this->db->set('balance', 'balance + ' . $paid_amount, FALSE);
+                $this->db->where('slug', 'credits');
+                $this->db->update('accounts');
+
+                // Update PO with credit person details
+                $this->db->where('po_id', $po_id);
+                $this->db->update('purchase_orders', [
+                    'credit_person_name' => $credit_person_name,
+                    'credit_person_phone' => $credit_person_phone,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_by' => $this->session->userdata('userid')
+                ]);
+            }
+
+            // For non-credit payments (cash/card/bank transfer), record DEBIT from the relevant wallet account
+            $methodLower = strtolower($payment_method);
+            if (in_array($methodLower, ['cash', 'card', 'bank transfer', 'bank_transfer', 'cheque'])) {
+                $desc = ucfirst($methodLower) . ' payment for Purchase Order #' . $po_id;
+                $outgoing = [
+                    'payment_method' => $payment_method,
+                    'amount' => floatval($paid_amount),
+                    'description' => $desc,
+                    'reference_type' => 'purchase_order',
+                    'reference_id' => $po_id,
+                    'created_by' => $this->session->userdata('userid')
+                ];
+                // Cheque should not affect wallet; model handles that
+                $walletResult = $this->wallet_model->processOutgoingPayment($outgoing);
+                if ($walletResult['status'] !== 'success') {
+                    throw new Exception($walletResult['message']);
+                }
+            }
+
+            // Update PO payment status
+            $this->updatePoPaymentStatus($po_id);
+
+            $this->db->trans_complete();
+
+            if ($this->db->trans_status() === FALSE) {
+                throw new Exception('Transaction failed');
+            }
+
+            echo json_encode(['status' => 'success', 'message' => 'Payment added successfully']);
+
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            echo json_encode(['status' => 'error', 'message' => 'Failed to add payment: ' . $e->getMessage()]);
+        }
+    }
+
+    public function confirmPoPayments()
+    {
+        $po_id = $this->input->post('po_id');
+        if (!$po_id) {
+            echo json_encode(['status' => 'error', 'message' => 'PO ID is required']);
+            return;
+        }
+
+        // Get totals (excluding credit payments)
+        $this->db->select('SUM(paid_amount) as total_paid');
+        $this->db->from('purchase_order_payments');
+        $this->db->where('po_id', $po_id);
+        $this->db->where('payment_method !=', 'Credit');
+        $result = $this->db->get()->row();
+        $total_paid = $result ? (float)$result->total_paid : 0.0;
+
+        $po = $this->purchase_model->getPurchaseOrder($po_id);
+        if (!$po) {
+            echo json_encode(['status' => 'error', 'message' => 'Purchase order not found']);
+            return;
+        }
+        $po_total = (float)$po->total_amount;
+
+        if ($total_paid < $po_total) {
+            echo json_encode(['status' => 'error', 'message' => 'Cannot confirm. Balance remains.']);
+            return;
+        }
+
+        // Mark as completed and archive so it won't appear in active list
+        $this->db->where('po_id', $po_id);
+        $this->db->update('purchase_orders', [
+            'total_paid' => $total_paid,
+            'payment_status' => 'Completed',
+            'status' => 'Archived',
+            'payment_completed_at' => date('Y-m-d H:i:s')
+        ]);
+
+        // Move to history now that it is confirmed
+        $this->movePoToHistory($po_id);
+
+        echo json_encode(['status' => 'success', 'message' => 'Payments confirmed']);
+    }
+
+    public function deletePoPayment()
+    {
+        $payment_id = $this->input->post('payment_id');
+        $po_id = $this->input->post('po_id');
+        
+        if (!$payment_id || !$po_id) {
+            echo json_encode(['status' => 'error', 'message' => 'Payment ID and PO ID are required']);
+            return;
+        }
+
+        $this->db->where('id', $payment_id);
+        $delete = $this->db->delete('purchase_order_payments');
+        
+        if ($delete) {
+            // Update PO payment status
+            $this->updatePoPaymentStatus($po_id);
+            echo json_encode(['status' => 'success', 'message' => 'Payment deleted successfully']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to delete payment']);
+        }
+    }
+
+    private function updatePoPaymentStatus($po_id)
+    {
+        // Get total paid amount (excluding credit payments)
+        $this->db->select('SUM(paid_amount) as total_paid');
+        $this->db->from('purchase_order_payments');
+        $this->db->where('po_id', $po_id);
+        $this->db->where('payment_method !=', 'Credit');
+        $result = $this->db->get()->row();
+        
+        $total_paid = $result ? (float)$result->total_paid : 0;
+        
+        // Get PO total amount
+        $po = $this->purchase_model->getPurchaseOrder($po_id);
+        if (!$po) return;
+        
+        $po_total = (float)$po->total_amount;
+        
+        // Determine payment status (do NOT auto-complete here)
+        if ($total_paid > 0) {
+            $payment_status = 'Partial';
+        } else {
+            $payment_status = 'Pending';
+        }
+        
+        // Update PO payment status
+        $this->db->where('po_id', $po_id);
+        $this->db->update('purchase_orders', [
+            'total_paid' => $total_paid,
+            'payment_status' => $payment_status
+        ]);
+    }
+
+    private function movePoToHistory($po_id)
+    {
+        $this->db->trans_start();
+        
+        try {
+            // Get PO details
+            $po = $this->purchase_model->getPurchaseOrder($po_id);
+            if (!$po) return;
+            
+            // Insert into history
+            $history_data = [
+                'po_id' => $po->po_id,
+                'supplier_id' => $po->supplier_id,
+                'bill_no' => $po->bill_no,
+                'bill_date' => $po->bill_date,
+                'intended_payment_method' => $po->intended_payment_method,
+                'vat_type' => $po->vat_type,
+                'vat_percent' => $po->vat_percent,
+                'description' => $po->description,
+                'total_amount' => $po->total_amount,
+                'total_paid' => $po->total_paid,
+                'payment_completed_at' => date('Y-m-d H:i:s'),
+                'moved_by' => $this->session->userdata('userid'),
+                'moved_at' => date('Y-m-d H:i:s')
+            ];
+            
+            $this->db->insert('purchase_item_history', $history_data);
+            $history_id = $this->db->insert_id();
+            
+            // Copy PO items to history (map only existing columns and RETAIN po_item_id as required by schema)
+            $po_items = $this->purchase_model->getPurchaseOrderItems($po_id);
+            foreach ($po_items as $item) {
+                $item_data = [
+                    'history_id'         => $history_id,
+                    'po_item_id'         => $item->po_item_id,
+                    'po_id'              => $item->po_id,
+                    'supplier_id'        => $item->supplier_id,
+                    'product_id'         => $item->product_id,
+                    'brand'              => isset($item->brand) ? $item->brand : null,
+                    'category'           => isset($item->category) ? $item->category : null,
+                    'purchase_date'      => isset($item->purchase_date) ? $item->purchase_date : null,
+                    'genuine'            => isset($item->genuine) ? $item->genuine : 1,
+                    'uom'                => isset($item->uom) ? $item->uom : null,
+                    'inventory_type'     => isset($item->inventory_type) ? $item->inventory_type : null,
+                    'quantity'           => isset($item->quantity) ? $item->quantity : 0,
+                    'discount_percent'   => isset($item->discount_percent) ? $item->discount_percent : null,
+                    'discount_amount'    => isset($item->discount_amount) ? $item->discount_amount : 0.00,
+                    'company_price'      => isset($item->company_price) ? $item->company_price : 0.00,
+                    'sale_price'         => isset($item->sale_price) ? $item->sale_price : 0.00,
+                    'rack_no'            => isset($item->rack_no) ? $item->rack_no : null,
+                    'bin_no'             => isset($item->bin_no) ? $item->bin_no : null,
+                    'reorder_level'      => isset($item->reorder_level) ? $item->reorder_level : null,
+                    'note'               => isset($item->note) ? $item->note : null,
+                    'created_at'         => isset($item->created_at) ? $item->created_at : date('Y-m-d H:i:s'),
+                    'created_by'         => isset($item->created_by) ? $item->created_by : $this->session->userdata('userid'),
+                    'available_stock'    => isset($item->available_stock) ? $item->available_stock : 0,
+                    'available_stock_at' => isset($item->available_stock_at) ? $item->available_stock_at : null,
+                ];
+
+                $this->db->insert('purchase_history_items', $item_data);
+            }
+            
+            // Copy payments to history (map only existing columns)
+            $payments = $this->purchase_model->getPoPayments($po_id);
+            foreach ($payments as $payment) {
+                $payment_data = [
+                    'history_id'         => $history_id,
+                    'po_id'              => $payment->po_id,
+                    'payment_method'     => $payment->payment_method,
+                    'paid_amount'        => $payment->paid_amount,
+                    'card_or_cheque_no'  => isset($payment->card_or_cheque_no) ? $payment->card_or_cheque_no : null,
+                    'cheque_date'        => isset($payment->cheque_date) ? $payment->cheque_date : null,
+                    'bank_name'          => isset($payment->bank_name) ? $payment->bank_name : null,
+                    'note'               => isset($payment->note) ? $payment->note : null,
+                    'payment_date'       => isset($payment->payment_date) ? $payment->payment_date : date('Y-m-d H:i:s'),
+                    'created_by'         => isset($payment->created_by) ? $payment->created_by : $this->session->userdata('userid'),
+                ];
+
+                $this->db->insert('purchase_history_payments', $payment_data);
+            }
+            
+            // Update PO status to indicate it's been moved to history
+            $this->db->where('po_id', $po_id);
+            $this->db->update('purchase_orders', [
+                'status' => 'Archived',
+                'payment_status' => 'Completed'
+            ]);
+            
+            $this->db->trans_complete();
+            
+        } catch (Exception $e) {
+            $this->db->trans_rollback();
+            error_log('Error moving PO to history: ' . $e->getMessage());
+        }
+    }
+
+
+    public function loadPurchaseHistory()
+    {
+        // Get filter parameters
+        $supplierId = $this->input->get('supplier_id');
+        $dateFrom = $this->input->get('date_from');
+        $dateTo = $this->input->get('date_to');
+        $billNumber = $this->input->get('bill_number');
+        
+        // Load suppliers for filter dropdown
+        $data['suppliers'] = $this->purchase_model->loadActiveSuppliers();
+        
+        // Load purchase history with filters
+        $data['purchases'] = $this->purchase_model->getPurchaseHistory($supplierId, $dateFrom, $dateTo, $billNumber);
+        
+        // Pass filter values back to view
+        $data['filters'] = [
+            'supplier_id' => $supplierId,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'bill_number' => $billNumber,
+        ];
+        
+        // Debug output
+        error_log("loadPurchaseHistory - Found " . count($data['purchases']) . " purchase history records");
+        if (!empty($data['purchases'])) {
+            $first = $data['purchases'][0];
+            error_log("First record: " . print_r($first, true));
+        }
+        
+        $this->load->view('purchase/purchase-history', $data);
+    }
+
+    public function getPurchaseHistoryDetails()
+    {
+        // SIMPLIFIED VERSION - Just return basic HTML to test AJAX
+        $po_id = $this->input->post('history_id');
+        
+        if (!$po_id) {
+            echo '<div class="alert alert-danger">No PO ID provided</div>';
+            return;
+        }
+        
+        echo '<div class="alert alert-success">';
+        echo '<h4>PO Details for ID: ' . $po_id . '</h4>';
+        echo '<p>This is a test response. The AJAX call is working!</p>';
+        echo '<p>POST data: ' . print_r($_POST, true) . '</p>';
+        echo '</div>';
+        
+        return;
+        
+        // ORIGINAL CODE BELOW (commented out for now)
+        /*
+        try {
+            // Log that function is being called
+            log_message('debug', 'getPurchaseHistoryDetails function called');
+            
+            // Debug: Log all POST data
+            log_message('debug', 'POST data: ' . print_r($_POST, true));
+            
+        $po_id = $this->input->post('history_id'); // Still using history_id parameter name for compatibility
+        
+        if (!$po_id) {
+                log_message('error', 'getPurchaseHistoryDetails: No PO ID provided. POST data: ' . print_r($_POST, true));
+                echo json_encode(['status' => 'error', 'message' => 'PO ID is required. POST data: ' . print_r($_POST, true)]);
+            return;
+        }
+
+            // Debug logging
+            log_message('debug', 'getPurchaseHistoryDetails called with po_id: ' . $po_id);
+
+        // First, try to get from history table (for completed POs)
+        $this->db->select('*');
+        $this->db->from('purchase_item_history');
+        $this->db->where('po_id', $po_id);
+        $history_po = $this->db->get()->row();
+        
+        log_message('debug', 'History PO found: ' . ($history_po ? 'Yes' : 'No'));
+        
+        if ($history_po) {
+            // PO is in history table - get details from history
+            $supplier = $this->purchase_model->getSupplierById($history_po->supplier_id);
+            
+            // Get user who moved the PO (simplified)
+            $moved_by_name = 'System';
+            if (isset($history_po->moved_by) && $history_po->moved_by) {
+                $this->db->select('first_name, last_name');
+                $this->db->from('users');
+                $this->db->where('userid', $history_po->moved_by);
+                $user = $this->db->get()->row();
+                if ($user) {
+                    $moved_by_name = $user->first_name . ' ' . $user->last_name;
+                }
+            }
+            
+            // Get history items
+            $this->db->select('phi.*, p.product_name, p.barcode, b.itemBrandName as brand_name, c.itemCategoryName as category_name');
+            $this->db->from('purchase_history_items phi');
+            $this->db->join('products p', 'p.product_id = phi.product_id', 'left');
+            $this->db->join('item_brands b', 'b.itemBrandId = p.item_brand_id', 'left');
+            $this->db->join('item_categories c', 'c.itemCategoryId = p.item_category_id', 'left');
+            $this->db->where('phi.history_id', $history_po->history_id);
+            $this->db->order_by('phi.id', 'ASC');
+            $items = $this->db->get()->result();
+            
+            // Get history payments
+            $this->db->select('*');
+            $this->db->from('purchase_history_payments');
+            $this->db->where('history_id', $history_po->history_id);
+            $this->db->order_by('payment_date', 'ASC');
+            $payments = $this->db->get()->result();
+            
+            // Format data for the view with safety checks
+            $data = [
+                'history' => (object)[
+                    'po_id' => isset($history_po->po_id) ? $history_po->po_id : 0,
+                    'supplier_name' => $supplier ? $supplier->supplier_name : 'Unknown',
+                    'contact_no' => $supplier ? $supplier->contact_no : '',
+                    'email' => $supplier ? $supplier->email : '',
+                    'bill_no' => isset($history_po->bill_no) ? $history_po->bill_no : '',
+                    'bill_date' => isset($history_po->bill_date) ? $history_po->bill_date : date('Y-m-d'),
+                    'total_amount' => isset($history_po->total_amount) ? $history_po->total_amount : 0,
+                    'total_paid' => isset($history_po->total_paid) ? $history_po->total_paid : 0,
+                    'vat_type' => isset($history_po->vat_type) ? $history_po->vat_type : 'none',
+                    'vat_percent' => isset($history_po->vat_percent) ? $history_po->vat_percent : 0,
+                    'description' => isset($history_po->description) ? $history_po->description : '',
+                    'payment_completed_at' => isset($history_po->payment_completed_at) ? $history_po->payment_completed_at : date('Y-m-d H:i:s'),
+                    'moved_by_name' => $moved_by_name,
+                    'moved_at' => isset($history_po->moved_at) ? $history_po->moved_at : date('Y-m-d H:i:s')
+                ],
+                'items' => $items ? $items : [],
+                'payments' => $payments ? $payments : []
+            ];
+        } else {
+            // Try to get from main purchase_orders table (for active POs)
+            log_message('debug', 'PO not found in history, checking main table');
+            $po = $this->purchase_model->getPurchaseOrder($po_id);
+            if (!$po) {
+                log_message('error', 'PO not found in main table either for po_id: ' . $po_id);
+                echo json_encode(['status' => 'error', 'message' => 'Purchase order not found for PO ID: ' . $po_id]);
+                return;
+            }
+            log_message('debug', 'PO found in main table');
+
+            // Get supplier details
+            $supplier = $this->purchase_model->getSupplierById($po->supplier_id);
+            
+            // Get PO items
+            $items = $this->purchase_model->getPurchaseOrderItems($po_id);
+            
+            // Get payments
+            $payments = $this->purchase_model->getPoPayments($po_id);
+            
+            // Format data for the view with safety checks
+            $data = [
+                'history' => (object)[
+                    'po_id' => isset($po->po_id) ? $po->po_id : 0,
+                    'supplier_name' => $supplier ? $supplier->supplier_name : 'Unknown',
+                    'contact_no' => $supplier ? $supplier->contact_no : '',
+                    'email' => $supplier ? $supplier->email : '',
+                    'bill_no' => isset($po->bill_no) ? $po->bill_no : '',
+                    'bill_date' => isset($po->bill_date) ? $po->bill_date : date('Y-m-d'),
+                    'total_amount' => isset($po->total_amount) ? $po->total_amount : 0,
+                    'total_paid' => isset($po->total_paid) ? $po->total_paid : 0,
+                    'vat_type' => isset($po->vat_type) ? $po->vat_type : 'none',
+                    'vat_percent' => isset($po->vat_percent) ? $po->vat_percent : 0,
+                    'description' => isset($po->description) ? $po->description : '',
+                    'payment_completed_at' => isset($po->completed_at) ? $po->completed_at : date('Y-m-d H:i:s'),
+                    'moved_by_name' => 'Active PO',
+                    'moved_at' => isset($po->created_at) ? $po->created_at : date('Y-m-d H:i:s')
+                ],
+                'items' => $items ? $items : [],
+                'payments' => $payments ? $payments : []
+            ];
+        }
+
+        // Ensure we have data to display
+        if (empty($data)) {
+            log_message('error', 'No data found for PO ID: ' . $po_id);
+            echo json_encode(['status' => 'error', 'message' => 'No data found for this purchase order']);
+            return;
+        }
+
+        // Try to load the view, if it fails, show a simple version
+        try {
+            $this->load->view('purchase/purchase-history-details', $data);
+        } catch (Exception $e) {
+            log_message('error', 'View loading failed: ' . $e->getMessage());
+            echo "<h3>PO Details (Simple View)</h3>";
+            echo "<p>PO ID: " . $data['history']->po_id . "</p>";
+            echo "<p>Supplier: " . $data['history']->supplier_name . "</p>";
+            echo "<p>Total Amount: " . $data['history']->total_amount . "</p>";
+            echo "<p>Items Count: " . count($data['items']) . "</p>";
+            echo "<p>Payments Count: " . count($data['payments']) . "</p>";
+        }
+            
+        } catch (Exception $e) {
+            log_message('error', 'getPurchaseHistoryDetails Exception: ' . $e->getMessage());
+            log_message('error', 'getPurchaseHistoryDetails Stack trace: ' . $e->getTraceAsString());
+            echo json_encode(['status' => 'error', 'message' => 'Internal server error: ' . $e->getMessage()]);
+        }
+        */
+    }
+
+    public function testPoHistory()
+    {
+        // Simple test function to debug the issue
+        $po_id = $this->input->get('po_id');
+        
+        if (!$po_id) {
+            echo "No PO ID provided. Try: ?po_id=1";
+            return;
+        }
+        
+        echo "<h3>Testing PO History for ID: " . $po_id . "</h3>";
+        
+        // Test database connection
+        echo "<h4>1. Testing Database Connection:</h4>";
+        if ($this->db->conn_id) {
+            echo "✓ Database connected<br>";
+        } else {
+            echo "✗ Database connection failed<br>";
+            return;
+        }
+        
+        // Test history table
+        echo "<h4>2. Testing History Table:</h4>";
+        $this->db->select('*');
+        $this->db->from('purchase_item_history');
+        $this->db->where('po_id', $po_id);
+        $query = $this->db->get();
+        $history_po = $query->row();
+        
+        if ($history_po) {
+            echo "✓ Found in history table<br>";
+            echo "History ID: " . $history_po->history_id . "<br>";
+            echo "Supplier ID: " . $history_po->supplier_id . "<br>";
+            echo "Total Amount: " . $history_po->total_amount . "<br>";
+        } else {
+            echo "✗ Not found in history table<br>";
+        }
+        
+        // Test main table
+        echo "<h4>3. Testing Main Table:</h4>";
+        $this->db->select('*');
+        $this->db->from('purchase_orders');
+        $this->db->where('po_id', $po_id);
+        $query = $this->db->get();
+        $main_po = $query->row();
+        
+        if ($main_po) {
+            echo "✓ Found in main table<br>";
+            echo "Status: " . $main_po->status . "<br>";
+            echo "Payment Status: " . $main_po->payment_status . "<br>";
+        } else {
+            echo "✗ Not found in main table<br>";
+        }
+        
+        // Test if there are any POs in history at all
+        echo "<h4>4. Testing History Table Contents:</h4>";
+        $this->db->select('po_id, supplier_id, total_amount, moved_at');
+        $this->db->from('purchase_item_history');
+        $this->db->limit(5);
+        $query = $this->db->get();
+        $all_history = $query->result();
+        
+        if ($all_history) {
+            echo "✓ History table has " . count($all_history) . " records<br>";
+            foreach ($all_history as $h) {
+                echo "- PO ID: " . $h->po_id . ", Amount: " . $h->total_amount . "<br>";
+            }
+        } else {
+            echo "✗ History table is empty<br>";
+        }
+    }
+
+    public function testSimple()
+    {
+        // Very simple test to see if the controller is working
+        echo "Controller is working!";
+    }
+
+    public function testMinimalDetails()
+    {
+        // Minimal test of the main function
+        try {
+            $_POST['history_id'] = 1;
+            
+            $po_id = $this->input->post('history_id');
+            echo "PO ID: " . $po_id . "<br>";
+            
+            // Test history table query
+            $this->db->select('*');
+            $this->db->from('purchase_item_history');
+            $this->db->where('po_id', $po_id);
+            $history_po = $this->db->get()->row();
+            
+            if ($history_po) {
+                echo "Found in history: " . $history_po->po_id . "<br>";
+            } else {
+                echo "Not found in history<br>";
+            }
+            
+        } catch (Exception $e) {
+            echo "Error: " . $e->getMessage() . "<br>";
+        }
+    }
+
+    public function testMainFunction()
+    {
+        // Test the main function with simplified logic
+        try {
+            $_POST['history_id'] = 1;
+            
+            $po_id = $this->input->post('history_id');
+            echo "Testing main function with PO ID: " . $po_id . "<br>";
+            
+            // First, try to get from history table
+            $this->db->select('*');
+            $this->db->from('purchase_item_history');
+            $this->db->where('po_id', $po_id);
+            $history_po = $this->db->get()->row();
+            
+            if ($history_po) {
+                echo "✓ Found in history table<br>";
+                
+                // Get supplier
+                $supplier = $this->purchase_model->getSupplierById($history_po->supplier_id);
+                echo "✓ Supplier: " . ($supplier ? $supplier->supplier_name : 'Unknown') . "<br>";
+                
+                // Get items
+                $this->db->select('phi.*, p.product_name, p.barcode, b.itemBrandName as brand_name, c.itemCategoryName as category_name');
+                $this->db->from('purchase_history_items phi');
+                $this->db->join('products p', 'p.product_id = phi.product_id', 'left');
+                $this->db->join('item_brands b', 'b.itemBrandId = p.item_brand_id', 'left');
+                $this->db->join('item_categories c', 'c.itemCategoryId = p.item_category_id', 'left');
+                $this->db->where('phi.history_id', $history_po->history_id);
+                $this->db->order_by('phi.id', 'ASC');
+                $items = $this->db->get()->result();
+                echo "✓ Items: " . count($items) . "<br>";
+                
+                // Get payments
+                $this->db->select('*');
+                $this->db->from('purchase_history_payments');
+                $this->db->where('history_id', $history_po->history_id);
+                $this->db->order_by('payment_date', 'ASC');
+                $payments = $this->db->get()->result();
+                echo "✓ Payments: " . count($payments) . "<br>";
+                
+                // Test data structure
+                $data = [
+                    'history' => (object)[
+                        'po_id' => $history_po->po_id,
+                        'supplier_name' => $supplier ? $supplier->supplier_name : 'Unknown',
+                        'total_amount' => $history_po->total_amount,
+                ],
+                'items' => $items,
+                'payments' => $payments
+            ];
+                echo "✓ Data structure created<br>";
+
+                // Test view loading
+                echo "Testing view loading...<br>";
+        $this->load->view('purchase/purchase-history-details', $data);
+                
+            } else {
+                echo "✗ Not found in history table<br>";
+            }
+            
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "<br>";
+            echo "Stack trace: " . $e->getTraceAsString() . "<br>";
+        }
+    }
+
+    public function testAjaxCall()
+    {
+        // Test the exact same function that AJAX calls
+        echo "Testing AJAX call simulation...<br>";
+        $_POST['history_id'] = 1;
+        $this->getPurchaseHistoryDetails();
+    }
+
+    public function testGetDetails()
+    {
+        // Test the main function with a direct call
+        echo "<h3>Testing getPurchaseHistoryDetails step by step</h3>";
+        
+        try {
+            echo "<h4>Step 1: Testing model loading</h4>";
+            $this->load->model('purchase_model');
+            echo "✓ Model loaded successfully<br>";
+            
+            echo "<h4>Step 2: Testing getPurchaseOrder method</h4>";
+            $po = $this->purchase_model->getPurchaseOrder(1);
+            if ($po) {
+                echo "✓ PO found: " . $po->po_id . "<br>";
+            } else {
+                echo "✗ PO not found<br>";
+            }
+            
+            echo "<h4>Step 3: Testing getPurchaseOrderItems method</h4>";
+            $items = $this->purchase_model->getPurchaseOrderItems(1);
+            echo "✓ Items retrieved: " . count($items) . " items<br>";
+            
+            echo "<h4>Step 4: Testing getPoPayments method</h4>";
+            $payments = $this->purchase_model->getPoPayments(1);
+            echo "✓ Payments retrieved: " . count($payments) . " payments<br>";
+            
+            echo "<h4>Step 5: Testing getSupplierById method</h4>";
+            $supplier = $this->purchase_model->getSupplierById(1);
+            if ($supplier) {
+                echo "✓ Supplier found: " . $supplier->supplier_name . "<br>";
+            } else {
+                echo "✗ Supplier not found<br>";
+            }
+            
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "<br>";
+            echo "Stack trace: " . $e->getTraceAsString() . "<br>";
+        }
+    }
+
+    public function downloadStockPDF()
+    {
+        $sdate = $this->input->post('sdate');
+        $edate = $this->input->post('edate');
+        $category_id = $this->input->post('category_id');
+        $brand_id = $this->input->post('brand_id');
+        $supplier_id = $this->input->post('supplier_id');
+
+        // Check if dates are provided
+        $has_date_filter = !empty($sdate) && !empty($edate);
+        
+        if ($has_date_filter) {
+            // Validate date only if dates are provided
+            if (strtotime($sdate) <= strtotime('2025-04-31')) {
+                echo "Start date should be after 2025-04-31";
+                return;
+            }
+            
+            // Define open balance date range for date-filtered reports
+            $data['openBalanceSdate'] = '2025-03-01';
+            $data['openBalanceEdate'] = date('Y-m-d', strtotime($sdate . ' -1 day'));
+        } else {
+            // For no date filter, use a very early date to get all records
+            $sdate = '2025-05-01';
+            $edate = date('Y-m-d');
+            $data['openBalanceSdate'] = '2025-03-01';
+            $data['openBalanceEdate'] = '2025-04-30';
+        }
+
+        // Step 1: Get filtered product purchase list
+        $products = $this->purchase_model->loadPurchaseProductsAsGroup($category_id, $brand_id, $supplier_id);
+        
+        // If no products found with filters, return empty result
+        if (empty($products)) {
+            $data['stock'] = [];
+        } else {
+            $product_ids = array_column($products, 'product_id');
+
+            // Step 2: Get stock summary for date range
+            $stock_summary = $this->purchase_model->getStockInOutSummary($product_ids, $sdate, $edate);
+
+            // Step 3: Loop and enrich each product row
+            foreach ($products as &$p) {
+                $pid = $p->product_id;
+
+                // Open balance (as of sdate)
+                $open_balance = $this->purchase_model->getOpenBalance($pid, $sdate);
+
+                // Stock movements
+                $stock_in = $stock_summary[$pid]['stock_in'] ?? 0;
+                $job_out = $stock_summary[$pid]['job_out'] ?? 0;
+                $bill_out = $stock_summary[$pid]['bill_out'] ?? 0;
+                $stock_out = $job_out + $bill_out;
+
+                // Closing balance
+                $closing = $open_balance + $stock_in - $stock_out;
+
+                // Assign to product object
+                $p->open_balance = $open_balance;
+                $p->stock_in = $stock_in;
+                $p->stock_out = $stock_out;
+                $p->closing_balance = $closing;
+            }
+            unset($p);
+
+            $data['stock'] = $products;
+        }
+
+        // Add filter information for PDF header
+        $data['filters'] = [
+            'sdate' => $sdate,
+            'edate' => $edate,
+            'category_id' => $category_id,
+            'brand_id' => $brand_id,
+            'supplier_id' => $supplier_id,
+            'has_date_filter' => $has_date_filter
+        ];
+
+        // Load PDF library
+        $this->load->library('pdf');
+        
+        // Generate PDF
+        $html = $this->load->view('stock/stock-pdf-template', $data, true);
+        
+        $this->pdf->loadHtml($html);
+        $this->pdf->setPaper('A4', 'landscape');
+        $this->pdf->render();
+        
+        $filename = 'Stock_Report_' . date('Y-m-d_H-i-s') . '.pdf';
+        $this->pdf->stream($filename);
+    }
+
+    public function loadPurchasedItemHistory()
+    {
+        // Get filter parameters
+        $supplierId = $this->input->get('supplier_id');
+        $dateFrom = $this->input->get('date_from');
+        $dateTo = $this->input->get('date_to');
+        $itemName = $this->input->get('item_name');
+        
+        // Load suppliers for filter dropdown
+        $data['suppliers'] = $this->purchase_model->loadActiveSuppliers();
+        
+        // Load purchased items history with filters
+        $data['purchased_items'] = $this->purchase_model->getPurchasedItemHistory($supplierId, $dateFrom, $dateTo, $itemName);
+        
+        // Pass filter values back to view
+        $data['filters'] = [
+            'supplier_id' => $supplierId,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'item_name' => $itemName,
+        ];
+        
+        $this->load->view('purchase/purchaseditem-history', $data);
+    }
+
+    public function updateSellPrice()
+    {
+        $poItemId = $this->input->post('po_item_id');
+        $salePrice = $this->input->post('sale_price');
+        
+        if (!$poItemId || !$salePrice) {
+            echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
+            return;
+        }
+        
+        try {
+            // Load the model
+            $this->load->model('purchase_model');
+            
+            // Update the sell price
+            $this->db->where('po_item_id', $poItemId);
+            $result = $this->db->update('purchase_order_items', ['sale_price' => $salePrice]);
+            
+            if ($result) {
+                echo json_encode(['success' => true, 'message' => 'Sell price updated successfully']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Failed to update sell price']);
+            }
+            
+        } catch (Exception $e) {
+            log_message('error', 'updateSellPrice Exception: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Database error occurred']);
+        }
+    }
+}

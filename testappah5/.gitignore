@@ -1,0 +1,38 @@
+# Session files
+application/cache/sessions/*
+!application/cache/sessions/.gitkeep
+
+# Cache
+application/cache/license_cache.json
+
+# Logs
+application/logs/log-*.php
+error_log
+
+# Composer binary (only keep composer.json and composer.lock)
+composer
+
+# Vendor directory (if installed via composer)
+vendor/
+
+# Debug and utility scripts (temporary dev tools)
+check_db_permissions.php
+debug_admin_permissions.php
+debug_permissions.php
+debug_session_permissions.php
+final_permission_fix.php
+fix_permissions.php
+remove_inactive_roles.php
+seed_permissions.php
+seed_permissions_cli.php
+test_rbac.php
+
+# Server-specific files
+.cpanel.yml
+.well-known/
+
+# macOS
+.DS_Store
+
+# XAMPP/local PHP error logs
+*.log
