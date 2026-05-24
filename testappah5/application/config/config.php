@@ -4,7 +4,7 @@ date_default_timezone_set("Asia/Colombo");
 
 
 
-$config['base_url'] = 'http://localhost/testappah5/';
+$config['base_url'] = getenv('BASE_URL') ?: 'http://localhost/testappah5/';
 
 $config['index_page'] = '';
 
