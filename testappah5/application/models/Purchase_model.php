@@ -195,17 +195,11 @@ class Purchase_model extends CI_Model
 
     public function updateAvailableStockForItem($po_item_id, $new_quantity)
 {
-    // Update available_stock to match the new quantity
     $this->db->where('po_item_id', $po_item_id);
-    $update_result = $this->db->update('purchase_order_items', [
-        'available_stock' => $new_quantity,
-        'available_stock_at' => date('Y-m-d H:i:s')
+    return $this->db->update('purchase_order_items', [
+        'available_stock'    => $new_quantity,
+        'available_stock_at' => date('Y-m-d H:i:s'),
     ]);
-    
-    // Debug logging
-    error_log("updateAvailableStockForItem - po_item_id: $po_item_id, new_quantity: $new_quantity, update_result: " . ($update_result ? 'success' : 'failed'));
-    
-    return $update_result;
 }
 
     public function updateAvailableStockForCompletedPO($po_id)
@@ -333,9 +327,27 @@ class Purchase_model extends CI_Model
     }
 
 
-    public function loadPurchaseProductsAsGroup($category_id = null, $brand_id = null, $supplier_id = null, $product_id = null) 
+    public function loadPurchaseProductsAsGroup($category_id = null, $brand_id = null, $supplier_id = null, $product_id = null)
     {
-        $this->db->select('poi.*, po.bill_no, po.bill_date, po.vat_type, p.product_name, p.sku, b.itemBrandName as brand_name, c.itemCategoryName as category_name, s.name as supplier_name');
+        // SUM available_stock across all PO batches for the same product (F-02)
+        // Include Archived POs (fully paid) alongside Completed ones — same as QB/Job filters (F-01)
+        $this->db->select('
+            p.product_id,
+            p.product_name,
+            p.sku,
+            p.measurement_unit,
+            p.barcode,
+            b.itemBrandName as brand_name,
+            c.itemCategoryName as category_name,
+            s.name as supplier_name,
+            MAX(poi.uom) as uom,
+            SUM(poi.quantity) as quantity,
+            SUM(poi.available_stock) as available_stock,
+            MAX(poi.sale_price) as sale_price,
+            MAX(poi.company_price) as company_price,
+            MAX(poi.po_item_id) as po_item_id,
+            MAX(po.bill_date) as bill_date
+        ');
         $this->db->from('purchase_order_items poi');
         $this->db->join('products p', 'p.product_id = poi.product_id', 'left');
         $this->db->join('item_brands b', 'b.itemBrandId = p.item_brand_id', 'left');
@@ -343,7 +355,8 @@ class Purchase_model extends CI_Model
         $this->db->join('purchase_orders po', 'po.po_id = poi.po_id', 'left');
         $this->db->join('suppliers s', 's.supplier_id = poi.supplier_id', 'left');
 
-        $this->db->where('po.status', 'Completed');
+        // Match QB/Job filter: any completed PO regardless of payment/archive status
+        $this->db->where('po.completed_by >', 0);
 
         if ($supplier_id > 0) {
             $this->db->where('poi.supplier_id', $supplier_id);
@@ -360,8 +373,8 @@ class Purchase_model extends CI_Model
         if($product_id > 0) {
             $this->db->where('poi.product_id', $product_id);
         }
-        $this->db->group_by('poi.product_id');
-        $this->db->order_by('poi.po_item_id', 'DESC');
+        $this->db->group_by('p.product_id');
+        $this->db->order_by('p.product_name', 'ASC');
         $query = $this->db->get();
         return $query->result();
     }
@@ -391,8 +404,15 @@ class Purchase_model extends CI_Model
     $this->db->where('DATE(created_at) <', $sdate);
     $quick_issued = $this->db->get()->row()->issued ?? 0;
 
-    $open_balance = $purchased - ($job_issued + $quick_issued);
-    //return max($open_balance, 0); // no negative stock
+    // Issued via internal bill (F-05)
+    $this->db->select('SUM(ibi.quantity) as issued');
+    $this->db->from('internal_bill_items ibi');
+    $this->db->join('purchase_order_items poi', 'poi.po_item_id = ibi.po_item_id', 'left');
+    $this->db->where('poi.product_id', $product_id);
+    $this->db->where('DATE(ibi.created_at) <', $sdate);
+    $internal_issued = $this->db->get()->row()->issued ?? 0;
+
+    $open_balance = $purchased - ($job_issued + $quick_issued + $internal_issued);
     return $open_balance;
 }
 
@@ -436,6 +456,21 @@ public function getStockInOutSummary($product_ids, $sdate, $edate)
     $bill_result = $this->db->get()->result();
     foreach ($bill_result as $row) {
         $summary[$row->product_id]['bill_out'] = $row->bill_out;
+    }
+
+    // === STOCK OUT FROM INTERNAL BILL (F-05) ===
+    // internal_bill_items.item_id maps to purchase_order_items.po_item_id
+    // We need to resolve po_item_id → product_id via purchase_order_items
+    $this->db->select('poi.product_id, SUM(ibi.quantity) as internal_out');
+    $this->db->from('internal_bill_items ibi');
+    $this->db->join('purchase_order_items poi', 'poi.po_item_id = ibi.po_item_id', 'left');
+    $this->db->where_in('poi.product_id', $product_ids);
+    $this->db->where('DATE(ibi.created_at) >=', $sdate);
+    $this->db->where('DATE(ibi.created_at) <=', $edate);
+    $this->db->group_by('poi.product_id');
+    $internal_result = $this->db->get()->result();
+    foreach ($internal_result as $row) {
+        $summary[$row->product_id]['internal_out'] = $row->internal_out;
     }
 
     return $summary;

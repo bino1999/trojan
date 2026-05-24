@@ -482,6 +482,9 @@ class Job extends MY_Controller
         ];
 
         if ($this->db->insert('services_job_items', $data)) {
+            // Capture insert ID immediately — before any other query overwrites it (F-03)
+            $insertedId = $this->db->insert_id();
+
             // If job is currently ongoing, immediately deduct stock and mark confirmed
             $job = $this->db->get_where('services_job', ['job_id' => $jobId])->row();
             if ($job && intval($job->status) === 1) {
@@ -489,7 +492,6 @@ class Job extends MY_Controller
                 $this->db->where('po_item_id', $po_item_id);
                 $this->db->update('purchase_order_items');
 
-                $insertedId = $this->db->insert_id();
                 $this->db->where('id', $insertedId);
                 $this->db->update('services_job_items', ['confirmed_by' => $this->session->userdata('userid'), 'confirmed_at' => date('Y-m-d H:i:s')]);
             }
@@ -567,12 +569,23 @@ class Job extends MY_Controller
         $package_id = $this->input->post('package_id');
         $job_id = $this->input->post('job_id');
 
-
         if (!$package_id > 0) {
-            // Make sure you check for a valid item ID
             if (!is_null($itemId)) {
+                // Fetch the item before deleting so we can restore stock if needed
+                $item = $this->db->get_where('services_job_items', ['id' => $itemId])->row();
+                if (!$item) {
+                    echo json_encode(['status' => 'error', 'message' => 'Item not found.']);
+                    return;
+                }
+
                 $this->db->where('id', $itemId);
                 if ($this->db->delete('services_job_items')) {
+                    // Restore stock if item was a confirmed product (stock was deducted)
+                    if ($item->item_type === 'product' && $item->po_item_id > 0 && $item->confirmed_by > 0) {
+                        $this->db->set('available_stock', 'available_stock + ' . (float)$item->quantity, false);
+                        $this->db->where('po_item_id', $item->po_item_id);
+                        $this->db->update('purchase_order_items');
+                    }
                     $this->_recalculateJobTotals($job_id);
                     echo json_encode(['status' => 'success', 'message' => 'Item deleted successfully!']);
                 } else {
@@ -583,12 +596,24 @@ class Job extends MY_Controller
             }
         }
 
-
-        //if package_id > 0 then delete the all package item
+        // if package_id > 0 then delete all package items
         if ($package_id > 0) {
+            // Fetch all package items before deleting so we can restore stock for confirmed products
+            $packageItems = $this->db->get_where('services_job_items', [
+                'service_job_id' => $job_id,
+                'package_id'     => $package_id
+            ])->result();
+
             $this->db->where('service_job_id', $job_id);
             $this->db->where('package_id', $package_id);
             if ($this->db->delete('services_job_items')) {
+                foreach ($packageItems as $pItem) {
+                    if ($pItem->item_type === 'product' && $pItem->po_item_id > 0 && $pItem->confirmed_by > 0) {
+                        $this->db->set('available_stock', 'available_stock + ' . (float)$pItem->quantity, false);
+                        $this->db->where('po_item_id', $pItem->po_item_id);
+                        $this->db->update('purchase_order_items');
+                    }
+                }
                 $this->_recalculateJobTotals($job_id);
                 echo json_encode(['status' => 'success', 'message' => 'Item deleted successfully!']);
             } else {
@@ -914,9 +939,25 @@ if ($paymentMethod !== 'credit') {
         $this->db->where('service_job_id', $jobId);
         $this->db->update('services_job_items', $updateData2);
 
-        // If moving to Ongoing (1): deduct stock for all product items not yet confirmed
+        // If moving to Ongoing (1): validate then deduct stock for all unconfirmed product items (F-06)
         if (intval($status) === 1) {
             $items = $this->db->get_where('services_job_items', ['service_job_id' => $jobId, 'item_type' => 'product'])->result();
+            $shortItems = [];
+            foreach ($items as $it) {
+                if (intval($it->confirmed_by) <= 0) {
+                    // Re-check live available_stock before deducting (race condition guard)
+                    $poRow = $this->db->get_where('purchase_order_items', ['po_item_id' => $it->po_item_id])->row();
+                    $liveStock = $poRow ? (float)$poRow->available_stock : 0;
+                    if ($liveStock < (float)$it->quantity) {
+                        $shortItems[] = $it->item_id . ' (need ' . $it->quantity . ', have ' . $liveStock . ')';
+                    }
+                }
+            }
+            if (!empty($shortItems)) {
+                $this->db->trans_rollback();
+                echo json_encode(['status' => 'error', 'message' => 'Insufficient stock for: ' . implode(', ', $shortItems)]);
+                return;
+            }
             foreach ($items as $it) {
                 if (intval($it->confirmed_by) <= 0) {
                     $this->db->set('available_stock', 'GREATEST(available_stock - ' . (float)$it->quantity . ', 0)', false);

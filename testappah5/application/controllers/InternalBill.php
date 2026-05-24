@@ -457,9 +457,15 @@ class InternalBill extends MY_Controller
             $this->load->model('InternalBill_model');
             $items = $this->InternalBill_model->get_internal_bill_items($billId);
 
-            // Restore stock for each item
+            // Restore stock for each item: ADD back the quantity (F-04 fix)
+            // updateAvailableStockForItem() SETS stock = qty which is wrong here;
+            // use reduceStockForItem with negative qty equivalent = increment
             foreach ($items as $item) {
-                $this->purchase_model->updateAvailableStockForItem($item->po_item_id, $item->quantity);
+                if (!empty($item->po_item_id) && $item->po_item_id > 0) {
+                    $this->db->set('available_stock', 'available_stock + ' . (float)$item->quantity, false);
+                    $this->db->where('po_item_id', $item->po_item_id);
+                    $this->db->update('purchase_order_items');
+                }
             }
 
             // Delete bill items
