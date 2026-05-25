@@ -481,6 +481,67 @@ public function getStockInOutSummary($product_ids, $sdate, $edate)
 }
 
 
+public function loadPurchaseItemsPerBatch($category_id = null, $brand_id = null, $supplier_id = null, $sdate = null, $edate = null)
+{
+    $this->db->select('
+        poi.po_item_id,
+        poi.product_id,
+        poi.quantity        AS stock_in,
+        poi.available_stock AS closing_balance,
+        (poi.quantity - poi.available_stock) AS stock_out,
+        poi.purchase_date,
+        poi.uom,
+        p.product_name,
+        p.sku,
+        p.measurement_unit,
+        s.name              AS supplier_name,
+        b.itemBrandName     AS brand_name,
+        c.itemCategoryName  AS category_name,
+        po.po_id,
+        po.reference_number
+    ');
+    $this->db->from('purchase_order_items poi');
+    $this->db->join('purchase_orders po',   'po.po_id = poi.po_id',                'left');
+    $this->db->join('products p',           'p.product_id = poi.product_id',       'left');
+    $this->db->join('item_brands b',        'b.itemBrandId = p.item_brand_id',     'left');
+    $this->db->join('item_categories c',    'c.itemCategoryId = p.item_category_id','left');
+    $this->db->join('suppliers s',          's.supplier_id = poi.supplier_id',     'left');
+
+    $this->db->where('po.completed_by >', 0);
+
+    if ($sdate && $edate) {
+        // Show batches purchased within the range, plus older batches that still carry stock
+        $this->db->group_start();
+            $this->db->group_start();
+                $this->db->where('poi.purchase_date >=', $sdate);
+                $this->db->where('poi.purchase_date <=', $edate);
+            $this->db->group_end();
+            $this->db->or_group_start();
+                $this->db->where('poi.purchase_date <', $sdate);
+                $this->db->where('poi.available_stock >', 0);
+            $this->db->group_end();
+        $this->db->group_end();
+    } else {
+        $this->db->where('poi.available_stock >', 0);
+    }
+
+    if ($supplier_id > 0) {
+        $this->db->where('poi.supplier_id', $supplier_id);
+    }
+    if ($category_id > 0) {
+        $this->db->where('p.item_category_id', $category_id);
+    }
+    if ($brand_id > 0) {
+        $this->db->where('p.item_brand_id', $brand_id);
+    }
+
+    $this->db->order_by('p.product_name',   'ASC');
+    $this->db->order_by('poi.purchase_date', 'ASC');
+
+    return $this->db->get()->result();
+}
+
+
 public function updateAvailableStock()
 {
     // Get all purchase items
