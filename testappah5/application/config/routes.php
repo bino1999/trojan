@@ -153,6 +153,7 @@ $route['purchase/getPurchaseHistoryDetails'] = 'purchase/getPurchaseHistoryDetai
 $route['purchase/getPurchasedItemDetails'] = 'purchase/getPurchasedItemDetails';
 $route['purchase/updateSellPrice'] = 'purchase/updateSellPrice';
 $route['purchase/writeOffProductStock'] = 'purchase/writeOffProductStock';
+$route['purchase/writeOffBatchStock']   = 'purchase/writeOffBatchStock';
 
 $route['services-manage'] = 'job/servicesManage';
 $route['print-job/(:any)'] = 'job/printInvoice/$1';

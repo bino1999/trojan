@@ -619,73 +619,32 @@ public function stockManage() {
 
     public function loadAvailableStock()
 {
-    $sdate = $this->input->post('sdate');
-    $edate = $this->input->post('edate');
+    $sdate       = $this->input->post('sdate');
+    $edate       = $this->input->post('edate');
     $category_id = $this->input->post('category_id');
-    $brand_id = $this->input->post('brand_id');
+    $brand_id    = $this->input->post('brand_id');
     $supplier_id = $this->input->post('supplier_id');
 
-    // Check if dates are provided
     $has_date_filter = !empty($sdate) && !empty($edate);
 
     if ($has_date_filter) {
-        // Validate that both are real dates and sdate is not after edate
         if (!strtotime($sdate) || !strtotime($edate) || strtotime($sdate) > strtotime($edate)) {
             echo json_encode(['status' => 'error', 'message' => 'Invalid date range. Start date must be before end date.']);
             return;
         }
-        $data['openBalanceSdate'] = date('Y-m-01', strtotime('-6 months', strtotime($sdate)));
-        $data['openBalanceEdate'] = date('Y-m-d', strtotime($sdate . ' -1 day'));
-    } else {
-        $sdate = date('Y-m-01');
-        $edate = date('Y-m-d');
-        $data['openBalanceSdate'] = date('Y-m-01', strtotime('-6 months'));
-        $data['openBalanceEdate'] = date('Y-m-d', strtotime('-1 day'));
     }
 
-    // Step 1: Get filtered product purchase list
-    $products = $this->purchase_model->loadPurchaseProductsAsGroup($category_id, $brand_id, $supplier_id);
+    $stock = $this->purchase_model->loadPurchaseItemsPerBatch(
+        $category_id,
+        $brand_id,
+        $supplier_id,
+        $has_date_filter ? $sdate : null,
+        $has_date_filter ? $edate : null
+    );
 
-    // If no products found with filters, return empty result
-    if (empty($products)) {
-        $data['stock'] = [];
-        $this->load->view('stock/available-stock-list', $data);
-        return;
-    }
-    
-    $product_ids = array_column($products, 'product_id');
-
-    // Step 2: Get stock summary for date range
-    $stock_summary = $this->purchase_model->getStockInOutSummary($product_ids, $sdate, $edate);
-
-    // Step 3: Loop and enrich each product row
-    foreach ($products as &$p) {
-        $pid = $p->product_id;
-
-        // Open balance (as of sdate)
-        $open_balance = $this->purchase_model->getOpenBalance($pid, $sdate);
-
-        // Stock movements (include internal bill consumption — F-05)
-        $stock_in     = $stock_summary[$pid]['stock_in']      ?? 0;
-        $job_out      = $stock_summary[$pid]['job_out']       ?? 0;
-        $bill_out     = $stock_summary[$pid]['bill_out']      ?? 0;
-        $internal_out = $stock_summary[$pid]['internal_out']  ?? 0;
-        $stock_out    = $job_out + $bill_out + $internal_out;
-
-        // Assign to product object
-        $p->open_balance    = $open_balance;
-        $p->stock_in        = $stock_in;
-        $p->stock_out       = $stock_out;
-        // Use the actual available_stock sum from purchase_order_items as the
-        // authoritative closing balance — the formula-based approach breaks when
-        // purchases span multiple batches with different date ranges.
-        $p->closing_balance = (float)$p->available_stock;
-    }
-    unset($p);
-
-    // Step 4: Pass data to view
-    $data['stock'] = $products;
+    $data['stock']           = $stock;
     $data['has_date_filter'] = $has_date_filter;
+    $data['filter_sdate']    = $has_date_filter ? $sdate : null;
     $this->load->view('stock/available-stock-list', $data);
 }
 
@@ -1374,6 +1333,45 @@ public function stockManage() {
         echo json_encode([
             'status'  => 'success',
             'message' => 'Stock written off. ' . $affected . ' batch(es) zeroed.',
+        ]);
+    }
+
+    public function writeOffBatchStock()
+    {
+        $this->require_permission('stock.manage');
+        $po_item_id = (int)$this->input->post('po_item_id');
+        $reason     = trim($this->input->post('reason'));
+
+        if (!$po_item_id) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid batch ID']);
+            return;
+        }
+        if (empty($reason)) {
+            echo json_encode(['status' => 'error', 'message' => 'A reason is required for stock write-off']);
+            return;
+        }
+
+        $batch = $this->purchase_model->getPoItem($po_item_id);
+        if (!$batch) {
+            echo json_encode(['status' => 'error', 'message' => 'Batch not found']);
+            return;
+        }
+
+        $this->db->where('po_item_id', $po_item_id);
+        $this->db->update('purchase_order_items', [
+            'available_stock'    => 0,
+            'available_stock_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->load->model('logs_model');
+        $this->logs_model->log_activity(
+            'Stock Write-Off (Batch)',
+            'PO Item ID: ' . $po_item_id . ' | Product ID: ' . $batch->product_id . ' | Reason: ' . $reason
+        );
+
+        echo json_encode([
+            'status'  => 'success',
+            'message' => 'Batch stock written off successfully.',
         ]);
     }
 
