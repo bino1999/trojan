@@ -59,7 +59,7 @@
                 <tr class="<?= $is_carry_forward ? 'table-warning' : '' ?>">
                     <td><?= $i++ ?></td>
                     <td style="white-space:nowrap;">
-                        <?= date('d M Y', strtotime($item->purchase_date)) ?>
+                        <?= $item->purchase_date ? date('d M Y', strtotime($item->purchase_date)) : '—' ?>
                         <?php if ($is_carry_forward): ?>
                             <br><span class="badge bg-warning text-dark" style="font-size:10px;">Carry-forward</span>
                         <?php endif; ?>
