@@ -1,0 +1,92 @@
+name: Deploy to InfinityFree
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: testappah5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mysqli, mbstring, xml
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Inject production config
+        env:
+          PROD_DB_HOST: ${{ secrets.PROD_DB_HOST }}
+          PROD_DB_USER: ${{ secrets.PROD_DB_USER }}
+          PROD_DB_PASS: ${{ secrets.PROD_DB_PASS }}
+          PROD_DB_NAME: ${{ secrets.PROD_DB_NAME }}
+          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+
+          db_host = os.environ['PROD_DB_HOST']
+          db_user = os.environ['PROD_DB_USER']
+          db_pass = os.environ['PROD_DB_PASS'].replace("'", "\\'")
+          db_name = os.environ['PROD_DB_NAME']
+          base_url = os.environ['PROD_BASE_URL']
+
+          with open('application/config/database.php', 'r') as f:
+              txt = f.read()
+
+          txt = re.sub(r"('hostname'\s*=>\s*)'[^']*'",  f"\\g<1>'{db_host}'", txt)
+          txt = re.sub(r"('username'\s*=>\s*)'[^']*'",  f"\\g<1>'{db_user}'", txt)
+          txt = re.sub(r"('password'\s*=>\s*)'[^']*'",  f"\\g<1>'{db_pass}'", txt)
+          txt = re.sub(r"('database'\s*=>\s*)'[^']*'",  f"\\g<1>'{db_name}'", txt)
+          txt = re.sub(r"'db_debug'\s*=>\s*(TRUE|FALSE)", "'db_debug' => FALSE", txt)
+
+          with open('application/config/database.php', 'w') as f:
+              f.write(txt)
+
+          with open('application/config/config.php', 'r') as f:
+              txt = f.read()
+
+          txt = re.sub(
+              r"(\$config\['base_url'\]\s*=\s*)'[^']*'",
+              f"\\g<1>'{base_url}'",
+              txt
+          )
+
+          with open('application/config/config.php', 'w') as f:
+              f.write(txt)
+
+          print("Config injection complete.")
+          print(f"  base_url = {base_url}")
+          print(f"  db_host  = {db_host}")
+          print(f"  db_name  = {db_name}")
+          PYEOF
+
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          local-dir: testappah5/
+          server-dir: /public_html/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/docs/**
+            **/node_modules/**
+            **/.DS_Store
+            **/error_log
+            **/application/cache/sessions/ci_session*
+            **/application/logs/log-*.php
