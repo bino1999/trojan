@@ -967,20 +967,20 @@ class Reports extends MY_Controller {
 			p.sku,
 			p.barcode,
 			p.sale_price as product_sale_price,
-			poi.sale_price,
+			MAX(poi.sale_price) as sale_price,
 			p.cost_price,
 			p.stock_quantity,
 			p.reorder_level,
 			ib.itemBrandName as brand_name,
 			ic.itemCategoryName as category_name,
-			s.name as supplier_name,
-			poi.available_stock,
-			poi.rack_no,
-			poi.bin_no,
-			poi.company_price,
-			poi.purchase_date,
-			(poi.available_stock * poi.company_price) as stock_value_cost,
-			(poi.available_stock * poi.sale_price) as stock_value_retail
+			GROUP_CONCAT(DISTINCT s.name SEPARATOR \', \') as supplier_name,
+			SUM(poi.available_stock) as available_stock,
+			MAX(poi.rack_no) as rack_no,
+			MAX(poi.bin_no) as bin_no,
+			MAX(poi.company_price) as company_price,
+			MAX(poi.purchase_date) as purchase_date,
+			SUM(poi.available_stock * poi.company_price) as stock_value_cost,
+			SUM(poi.available_stock * poi.sale_price) as stock_value_retail
 		');
 		$this->db->from('products p');
 		$this->db->join('item_brands ib', 'ib.itemBrandId = p.item_brand_id', 'left');
@@ -989,7 +989,6 @@ class Reports extends MY_Controller {
 		$this->db->join('suppliers s', 's.supplier_id = poi.supplier_id', 'left');
 		$this->db->where('p.is_deleted', 0);
 		$this->db->where('p.is_active', 1);
-		$this->db->where('poi.available_stock >', 0);
 
 		if ($category) {
 			$this->db->where('ic.itemCategoryId', $category);
@@ -1000,13 +999,6 @@ class Reports extends MY_Controller {
 		if ($supplier) {
 			$this->db->where('poi.supplier_id', $supplier);
 		}
-		if ($stock_status && $stock_status !== 'all') {
-			if ($stock_status === 'low') {
-				$this->db->where('poi.available_stock <= p.reorder_level', null, false);
-			} elseif ($stock_status === 'out') {
-				$this->db->where('poi.available_stock <=', 0);
-			}
-		}
 		if ($search) {
 			$this->db->group_start();
 			$this->db->like('p.product_name', $search);
@@ -1015,10 +1007,25 @@ class Reports extends MY_Controller {
 			$this->db->group_end();
 		}
 
-		$this->db->order_by('poi.available_stock', 'ASC');
+		$this->db->group_by('p.product_id, p.product_name, p.sku, p.barcode, p.sale_price, p.cost_price, p.stock_quantity, p.reorder_level, ib.itemBrandName, ic.itemCategoryName');
+
+		// Stock status filter applied via HAVING on the aggregated available_stock
+		if ($stock_status && $stock_status !== 'all') {
+			if ($stock_status === 'low') {
+				$this->db->having('SUM(poi.available_stock) > 0 AND SUM(poi.available_stock) <= p.reorder_level', null, false);
+			} elseif ($stock_status === 'out') {
+				$this->db->having('SUM(poi.available_stock) <=', 0);
+			} else {
+				$this->db->having('SUM(poi.available_stock) >', 0);
+			}
+		} else {
+			$this->db->having('SUM(poi.available_stock) >', 0);
+		}
+
+		$this->db->order_by('SUM(poi.available_stock)', 'ASC');
 		$query = $this->db->get();
 		$results = $query->result();
-		
+
 		// Add stock_status calculation in PHP
 		foreach ($results as $item) {
 			if ($item->available_stock <= 0) {
@@ -1029,7 +1036,7 @@ class Reports extends MY_Controller {
 				$item->stock_status = 'normal';
 			}
 		}
-		
+
 		return $results;
 	}
 
