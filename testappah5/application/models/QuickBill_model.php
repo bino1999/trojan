@@ -128,14 +128,15 @@ class QuickBill_model extends CI_Model
             $billItems = $this->get_bill_items($billId);
             $itemsSummary = [];
             
-            // Return items to stock
+            // Return items to stock — only the net-sold amount (BUG-07: avoid over-restore when returns already approved)
             foreach ($billItems as $item) {
                 if ($item->po_item_id > 0) {
-                    // Update available stock in purchase_order_items
-                    $this->db->set('available_stock', 'available_stock + ' . $item->quantity, false);
-                    $this->db->where('po_item_id', $item->po_item_id);
-                    $this->db->update('purchase_order_items');
-                    
+                    $net_restore = floatval($item->quantity) - floatval($item->return_quantity ?? 0);
+                    if ($net_restore > 0) {
+                        $this->db->set('available_stock', 'available_stock + ' . $net_restore, false);
+                        $this->db->where('po_item_id', $item->po_item_id);
+                        $this->db->update('purchase_order_items');
+                    }
                     $itemsSummary[] = $item->item_name . ' (Qty: ' . $item->quantity . ')';
                 }
             }
@@ -221,10 +222,10 @@ class QuickBill_model extends CI_Model
                     $this->db->update('purchase_order_items');
                 }
                 
-                // Update the return tracking fields in quick_bill_items (but DON'T change the original quantity)
+                // Accumulate return_quantity — a second partial return must add to the first, not overwrite (BUG-08)
                 $this->db->where('id', $item->quick_bill_item_id);
+                $this->db->set('return_quantity', 'COALESCE(return_quantity, 0) + ' . (float)$item->return_quantity, false);
                 $this->db->update('quick_bill_items', [
-                    'return_quantity' => $item->return_quantity,
                     'return_by' => $approvedBy,
                     'return_at' => date('Y-m-d H:i:s')
                 ]);

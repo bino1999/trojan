@@ -272,11 +272,6 @@ public function updatePoItem()
             $this->purchase_model->adjustStockForItemChange($po_item_id, $quantity_diff);
         }
 
-        // Update available_stock to match the new quantity (for non-completed POs)
-        if (!$is_completed) {
-            $this->purchase_model->updateAvailableStockForItem($po_item_id, $quantity);
-        }
-
         echo json_encode(['status' => 'success', 'message' => 'Item updated successfully.']);
     } else {
         echo json_encode(['status' => 'error', 'message' => 'Failed to update item.']);
@@ -302,12 +297,13 @@ public function deletePoItem()
     $po_details = $this->purchase_model->getPurchaseOrder($item_details->po_id);
     $is_completed = ($po_details && $po_details->status == 'Completed');
 
-    // Block deletion if the item has been used in any job or bill
+    // Block deletion if the item has been used in any job, bill, or internal bill (BUG-06)
     if ($is_completed) {
-        $job_usage  = $this->db->where('po_item_id', $po_item_id)->count_all_results('services_job_items');
-        $bill_usage = $this->db->where('po_item_id', $po_item_id)->count_all_results('quick_bill_items');
-        if ($job_usage > 0 || $bill_usage > 0) {
-            echo json_encode(['status' => 'error', 'message' => 'Cannot delete — this item has been used in existing jobs or bills.']);
+        $job_usage      = $this->db->where('po_item_id', $po_item_id)->count_all_results('services_job_items');
+        $bill_usage     = $this->db->where('po_item_id', $po_item_id)->count_all_results('quick_bill_items');
+        $internal_usage = $this->db->where('po_item_id', $po_item_id)->count_all_results('internal_bill_items');
+        if ($job_usage > 0 || $bill_usage > 0 || $internal_usage > 0) {
+            echo json_encode(['status' => 'error', 'message' => 'Cannot delete — this item has been used in existing jobs, bills, or internal bills.']);
             return;
         }
         $this->purchase_model->reduceStockForItem($po_item_id, $item_details->quantity);
@@ -436,20 +432,8 @@ public function loadPurchaseOrderItems(){
 
 public function deletePurchaseOrderItem($po_item_id = null)
 {
-    if (!$this->input->is_ajax_request()) {
-        show_error('No direct script access allowed');
-    }
-
-    if ($po_item_id && is_numeric($po_item_id)) {
-        $deleted = $this->purchase_model->deletePurchaseOrderItem($po_item_id);
-        if ($deleted) {
-            echo json_encode(['status' => 'success']);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Failed to delete item']);
-        }
-    } else {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid ID']);
-    }
+    // Unsafe URL-based route blocked — use deletePoItem() via POST instead
+    show_error('Direct deletion not allowed. Use the POST route.');
 }
 
 public function completePurchaseOrder()
@@ -558,13 +542,19 @@ public function deletePurchase()
                 ->where_in('po_item_id', $po_item_ids)
                 ->count_all_results('quick_bill_items');
 
-            if ($job_usage > 0 || $bill_usage > 0) {
+            // BUG-06: also block if any items are used in internal bills
+            $internal_usage = $this->db
+                ->where_in('po_item_id', $po_item_ids)
+                ->count_all_results('internal_bill_items');
+
+            if ($job_usage > 0 || $bill_usage > 0 || $internal_usage > 0) {
+                $parts = [];
+                if ($job_usage > 0)      $parts[] = $job_usage . ' job(s)';
+                if ($bill_usage > 0)     $parts[] = $bill_usage . ' quick bill(s)';
+                if ($internal_usage > 0) $parts[] = $internal_usage . ' internal bill(s)';
                 echo json_encode([
                     'status'  => 'error',
-                    'message' => 'Cannot delete this purchase order — its items have already been used in ' .
-                                 ($job_usage > 0 ? $job_usage . ' job(s)' : '') .
-                                 ($job_usage > 0 && $bill_usage > 0 ? ' and ' : '') .
-                                 ($bill_usage > 0 ? $bill_usage . ' quick bill(s)' : '') . '.',
+                    'message' => 'Cannot delete this purchase order — its items have already been used in ' . implode(', ', $parts) . '.',
                 ]);
                 return;
             }
@@ -1350,6 +1340,44 @@ public function stockManage() {
         ];
         
         $this->load->view('purchase/purchaseditem-history', $data);
+    }
+
+    public function writeOffProductStock()
+    {
+        $this->require_permission('stock.manage');
+        $product_id = (int)$this->input->post('product_id');
+        $reason     = trim($this->input->post('reason'));
+
+        if (!$product_id) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid product ID']);
+            return;
+        }
+        if (empty($reason)) {
+            echo json_encode(['status' => 'error', 'message' => 'A reason is required for stock write-off']);
+            return;
+        }
+
+        // Zero out available_stock across all completed PO batches for this product
+        $this->db->join('purchase_orders po', 'po.po_id = purchase_order_items.po_id');
+        $this->db->where('purchase_order_items.product_id', $product_id);
+        $this->db->where('po.completed_by >', 0);
+        $this->db->update('purchase_order_items', [
+            'available_stock'    => 0,
+            'available_stock_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $affected = $this->db->affected_rows();
+
+        $this->load->model('logs_model');
+        $this->logs_model->log_activity(
+            'Stock Write-Off',
+            'Product ID: ' . $product_id . ' | Reason: ' . $reason . ' | Batches zeroed: ' . $affected
+        );
+
+        echo json_encode([
+            'status'  => 'success',
+            'message' => 'Stock written off. ' . $affected . ' batch(es) zeroed.',
+        ]);
     }
 
     public function updateSellPrice()

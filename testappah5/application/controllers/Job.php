@@ -932,6 +932,23 @@ if ($paymentMethod !== 'credit') {
 
         $this->db->trans_start();
 
+        // BUG-02: Moving away from Ongoing — restore stock for all currently-confirmed product items
+        // so a later re-transition to Ongoing doesn't deduct stock a second time.
+        $currentJob = $this->db->get_where('services_job', ['job_id' => $jobId])->row();
+        if ($currentJob && intval($currentJob->status) === 1 && intval($status) !== 1) {
+            $confirmedItems = $this->db->get_where('services_job_items', [
+                'service_job_id' => $jobId,
+                'item_type'      => 'product',
+            ])->result();
+            foreach ($confirmedItems as $ci) {
+                if (intval($ci->confirmed_by) > 0 && $ci->po_item_id > 0) {
+                    $this->db->set('available_stock', 'available_stock + ' . (float)$ci->quantity, false);
+                    $this->db->where('po_item_id', $ci->po_item_id);
+                    $this->db->update('purchase_order_items');
+                }
+            }
+        }
+
         $this->db->where('job_id', $jobId);
         $this->db->update('services_job', $updateData);
 

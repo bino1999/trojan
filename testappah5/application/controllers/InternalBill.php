@@ -94,6 +94,13 @@ class InternalBill extends MY_Controller
             return;
         }
 
+        // Validate requested quantity against available stock (BUG-10)
+        $availableStock = floatval($poItem->available_stock ?? 0);
+        if (floatval($quantity) > $availableStock) {
+            echo json_encode(['status' => 'error', 'message' => 'Quantity exceeds available stock. Available: ' . number_format($availableStock, 2)]);
+            return;
+        }
+
         // Get product details
         $product = $this->services_model->loadProducts($productId);
         if (!$product) {
