@@ -632,19 +632,23 @@ public function stockManage() {
             echo json_encode(['status' => 'error', 'message' => 'Invalid date range. Start date must be before end date.']);
             return;
         }
+    } else {
+        // Default: current month (same as original behaviour)
+        $sdate = date('Y-m-01');
+        $edate = date('Y-m-d');
     }
 
     $stock = $this->purchase_model->loadPurchaseItemsPerBatch(
         $category_id,
         $brand_id,
         $supplier_id,
-        $has_date_filter ? $sdate : null,
-        $has_date_filter ? $edate : null
+        $sdate,
+        $edate
     );
 
     $data['stock']           = $stock;
     $data['has_date_filter'] = $has_date_filter;
-    $data['filter_sdate']    = $has_date_filter ? $sdate : null;
+    $data['filter_sdate']    = $sdate;
     $this->load->view('stock/available-stock-list', $data);
 }
 
