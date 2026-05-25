@@ -513,7 +513,7 @@ public function loadPurchaseItemsPerBatch($category_id = null, $brand_id = null,
             b.itemBrandName     AS brand_name,
             c.itemCategoryName  AS category_name,
             po.po_id,
-            po.reference_number
+            po.bill_no AS reference_number
         FROM purchase_order_items poi
         LEFT JOIN purchase_orders po   ON po.po_id = poi.po_id
         LEFT JOIN products p           ON p.product_id = poi.product_id
