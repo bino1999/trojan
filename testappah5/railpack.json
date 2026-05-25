@@ -1,9 +1,0 @@
-{
-  "phases": {
-    "setup": {
-      "cmds": [
-        "install-php-extensions mysqli pdo_mysql mbstring gd zip"
-      ]
-    }
-  }
-}
