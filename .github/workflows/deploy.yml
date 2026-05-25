@@ -80,7 +80,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
           local-dir: testappah5/
-          server-dir: /public_html/
+          server-dir: /htdocs/
           exclude: |
             **/.git*
             **/.git*/**
