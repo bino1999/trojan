@@ -12,6 +12,9 @@ COPY . .
 
 RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
+# Place Caddyfile where FrankenPHP actually reads it
+COPY Caddyfile /etc/frankenphp/Caddyfile
+
 # Sessions and logs must be writable
 RUN chmod -R 777 /app/application/cache/ \
     && chmod -R 777 /app/application/logs/
