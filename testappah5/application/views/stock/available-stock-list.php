@@ -23,12 +23,14 @@
                 <th>Stock In</th>
                 <th>Stock Out</th>
                 <th>Closing Balance</th>
+                <th class="text-center">Action</th>
             </tr>
         </thead>
         <tbody>
-            <?php 
+            <?php
             $i = 1;
-            foreach ($stock as $item) { 
+            foreach ($stock as $item) {
+                $closing = (float)$item->closing_balance;
                 ?>
                 <tr>
                     <td><?= $i++ ?></td>
@@ -39,7 +41,20 @@
                     <td><?= number_format($item->open_balance, 2) ?></td>
                     <td><?= number_format($item->stock_in, 2) ?></td>
                     <td><?= number_format($item->stock_out, 2) ?></td>
-                    <td><?= number_format($item->closing_balance, 2) ?></td>
+                    <td class="<?= $closing < 0 ? 'text-danger fw-bold' : '' ?>">
+                        <?= number_format($closing, 2) ?>
+                    </td>
+                    <td class="text-center">
+                        <?php if ($closing > 0): ?>
+                        <button class="btn btn-danger btn-sm"
+                                onclick="confirmWriteOff(<?= (int)$item->product_id ?>, '<?= htmlspecialchars($item->product_name, ENT_QUOTES) ?>', <?= $closing ?>)"
+                                title="Write off stock">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                        <?php else: ?>
+                        <span class="text-muted small">—</span>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php } ?>
         </tbody>
@@ -166,5 +181,52 @@ function downloadStockPDF() {
     document.body.appendChild(form);
     form.submit();
     document.body.removeChild(form);
+}
+
+function confirmWriteOff(productId, productName, closingBalance) {
+    Swal.fire({
+        title: 'Write Off Stock?',
+        html: `<p>You are about to <strong>zero out all available stock</strong> for:</p>
+               <p><strong>${productName}</strong></p>
+               <p>Current balance: <strong>${closingBalance}</strong> units</p>
+               <hr>
+               <label class="form-label text-start d-block">Reason <span class="text-danger">*</span></label>
+               <textarea id="writeoff-reason" class="form-control" rows="3" placeholder="e.g. damaged goods, stock audit correction…"></textarea>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Yes, Write Off',
+        cancelButtonText: 'Cancel',
+        preConfirm: () => {
+            const reason = document.getElementById('writeoff-reason').value.trim();
+            if (!reason) {
+                Swal.showValidationMessage('A reason is required.');
+                return false;
+            }
+            return reason;
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.ajax({
+                url: '<?= site_url('purchase/writeOffProductStock') ?>',
+                type: 'POST',
+                data: { product_id: productId, reason: result.value },
+                success: function(response) {
+                    const res = typeof response === 'string' ? JSON.parse(response) : response;
+                    if (res.status === 'success') {
+                        Swal.fire('Written Off', res.message, 'success').then(() => {
+                            loadAvailableStock();
+                        });
+                    } else {
+                        Swal.fire('Error', res.message, 'error');
+                    }
+                },
+                error: function() {
+                    Swal.fire('Error', 'Request failed. Please try again.', 'error');
+                }
+            });
+        }
+    });
 }
 </script>

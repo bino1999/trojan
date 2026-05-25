@@ -381,11 +381,13 @@ class Purchase_model extends CI_Model
 
     public function getOpenBalance($product_id, $sdate)
 {
-    // Total purchased before sdate
-    $this->db->select_sum('quantity');
-    $this->db->from('purchase_order_items');
-    $this->db->where('product_id', $product_id);
-    $this->db->where('purchase_date <', $sdate);
+    // Total purchased before sdate — completed POs only (BUG-09: exclude Draft PO quantities)
+    $this->db->select_sum('poi.quantity');
+    $this->db->from('purchase_order_items poi');
+    $this->db->join('purchase_orders po', 'po.po_id = poi.po_id', 'left');
+    $this->db->where('poi.product_id', $product_id);
+    $this->db->where('po.completed_by >', 0);
+    $this->db->where('poi.purchase_date <', $sdate);
     $purchased = $this->db->get()->row()->quantity ?? 0;
 
     // Issued in jobs
@@ -420,13 +422,15 @@ public function getStockInOutSummary($product_ids, $sdate, $edate)
 {
     $summary = [];
 
-    // === STOCK IN ===
-    $this->db->select('product_id, SUM(quantity) as stock_in');
-    $this->db->from('purchase_order_items');
-    $this->db->where_in('product_id', $product_ids);
-    $this->db->where('purchase_date >=', $sdate);
-    $this->db->where('purchase_date <=', $edate);
-    $this->db->group_by('product_id');
+    // === STOCK IN (completed POs only — BUG-04 fix) ===
+    $this->db->select('poi.product_id, SUM(poi.quantity) as stock_in');
+    $this->db->from('purchase_order_items poi');
+    $this->db->join('purchase_orders po', 'po.po_id = poi.po_id', 'left');
+    $this->db->where_in('poi.product_id', $product_ids);
+    $this->db->where('po.completed_by >', 0);
+    $this->db->where('poi.purchase_date >=', $sdate);
+    $this->db->where('poi.purchase_date <=', $edate);
+    $this->db->group_by('poi.product_id');
     $stock_in_result = $this->db->get()->result();
     foreach ($stock_in_result as $row) {
         $summary[$row->product_id]['stock_in'] = $row->stock_in;
@@ -487,11 +491,12 @@ public function updateAvailableStock()
         $po_item_id = $item->po_item_id;
         $qty = $item->quantity;
 
-        // Get issued from jobs
+        // Get issued from jobs — confirmed items only (BUG-11: unconfirmed items must not count)
         $this->db->select_sum('quantity');
         $this->db->from('services_job_items');
         $this->db->where('po_item_id', $po_item_id);
         $this->db->where('item_type', 'product');
+        $this->db->where('confirmed_by >', 0);
         $job_issued = $this->db->get()->row()->quantity ?? 0;
 
         // Get issued from quick bill (minus returns)
@@ -500,8 +505,14 @@ public function updateAvailableStock()
         $this->db->where('po_item_id', $po_item_id);
         $quick_issued = $this->db->get()->row()->issued ?? 0;
 
+        // Get issued from internal bills (BUG-11: was missing entirely)
+        $this->db->select_sum('quantity');
+        $this->db->from('internal_bill_items');
+        $this->db->where('po_item_id', $po_item_id);
+        $internal_issued = $this->db->get()->row()->quantity ?? 0;
+
         // Calculate available stock
-        $available = $qty - ($job_issued + $quick_issued);
+        $available = $qty - ($job_issued + $quick_issued + $internal_issued);
 
         // Update
         $this->db->where('po_item_id', $po_item_id);
