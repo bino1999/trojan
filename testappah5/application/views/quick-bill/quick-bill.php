@@ -523,8 +523,7 @@
             // Reset payment inputs and labels
             const pmSel = document.getElementById('paymentMethod');
             if (pmSel) pmSel.value = '';
-            const paidAmt = document.getElementById('paidAmount');
-            if (paidAmt) paidAmt.value = '';
+            // paidAmount is set by recalcGrandTotal() called below via bindBillDiscountInputs()
             const receiptNo = document.getElementById('cardOrChequeNo');
             if (receiptNo) receiptNo.value = '';
             const chequeDate = document.getElementById('chequeDate');

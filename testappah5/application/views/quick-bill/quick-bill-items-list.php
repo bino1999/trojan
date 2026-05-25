@@ -1068,6 +1068,10 @@
         $('#grandTotalDisplay').text(grand.toFixed(2));
         $('#totalBillAmount').text(grand.toFixed(2));
         $('#remainingBalance').text((grand - paymentMethods.reduce((s,p)=> s + parseFloat(p.amount||0), 0)).toFixed(2));
+        // Auto-fill paid amount with grand total when no payments have been added yet
+        if (paymentMethods.length === 0) {
+            $('#paidAmount').val(grand.toFixed(2));
+        }
         updatePaymentStatus();
     }
 
@@ -1258,7 +1262,6 @@
         
         // Clear the form
         $('#paymentMethod').val('');
-        $('#paidAmount').val('');
         $('#cardOrChequeNo').val('');
         $('#chequeDate').val('');
         $('#bankName').val('');
@@ -1267,6 +1270,10 @@
         $('#additionalPaymentFields').hide();
         $('#creditFields').hide();
         $('#creditDueDate').val('');
+        // Show remaining balance as next payment amount
+        const totalAlreadyPaid = paymentMethods.reduce((s,p) => s + parseFloat(p.amount||0), 0);
+        const remainingAmt = Math.max(0, totalBillAmount - totalAlreadyPaid);
+        $('#paidAmount').val(remainingAmt > 0 ? remainingAmt.toFixed(2) : '');
         
         // Reset required field styling
         $('.form-control:required, .form-select:required').removeClass('is-valid is-invalid');
@@ -1327,9 +1334,14 @@
         paymentMethods.splice(index, 1);
         updatePaymentMethodsList();
         updatePaymentStatus();
-        
+
         if (paymentMethods.length === 0) {
             $('#multiplePaymentsSection').hide();
+            $('#paidAmount').val(totalBillAmount.toFixed(2));
+        } else {
+            const totalAlreadyPaid = paymentMethods.reduce((s,p) => s + parseFloat(p.amount||0), 0);
+            const remainingAmt = Math.max(0, totalBillAmount - totalAlreadyPaid);
+            $('#paidAmount').val(remainingAmt > 0 ? remainingAmt.toFixed(2) : '');
         }
     }
     
