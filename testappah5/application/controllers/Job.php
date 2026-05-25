@@ -131,12 +131,9 @@ class Job extends MY_Controller
 
         // Common validations (for both new and existing customers)
         if (!$this->input->post('new_mobile')) {
-            $errors[] = 'Mobile number is required for new customer.';
-        }
-
-        //check mobile number has 10 digit and is numeric
-        if (!preg_match('/^[0-9]{10}$/', $this->input->post('new_mobile'))) {
-            $errors[] = 'Mobile number must be 10 digits and numeric.';
+            $errors[] = 'Contact mobile number is required.';
+        } elseif (!preg_match('/^[0-9]{10}$/', $this->input->post('new_mobile'))) {
+            $errors[] = 'Mobile number must be exactly 10 digits.';
         }
 
         if (!$this->input->post('current_mileage')) {
@@ -380,16 +377,18 @@ class Job extends MY_Controller
         $this->db->trans_complete();
 
         if ($this->db->trans_status() === FALSE) {
-            // Log error or handle transaction failure
             log_message('error', 'Failed to add package to job: ' . print_r($this->db->error(), TRUE));
-            return false;
+            echo json_encode(['status' => 'error', 'message' => 'Failed to add package to job']);
+            return;
         }
 
-        return true;
+        $this->_recalculateJobTotals($jobId);
+        echo json_encode(['status' => 'success', 'message' => 'Service package added successfully']);
     }
 
     public function addServiceItemToJob()
     {
+        $this->require_permission('job.edit');
         $jobId = $this->input->post('jobId');
         $itemId = $this->input->post('itemID');
 
@@ -422,6 +421,7 @@ class Job extends MY_Controller
 
         // Insert into the database
         if ($this->db->insert('services_job_items', $data)) {
+            $this->_recalculateJobTotals($jobId);
             echo json_encode(['status' => 'success', 'message' => 'Service item added successfully']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Failed to add service item']);
@@ -430,6 +430,7 @@ class Job extends MY_Controller
 
     public function addProductToJob()
     {
+        $this->require_permission('job.edit');
         $jobId = $this->input->post('jobId');
         $productId = $this->input->post('productID');
         $po_item_id = $this->input->post('po_item_id');
@@ -481,6 +482,9 @@ class Job extends MY_Controller
         ];
 
         if ($this->db->insert('services_job_items', $data)) {
+            // Capture insert ID immediately — before any other query overwrites it (F-03)
+            $insertedId = $this->db->insert_id();
+
             // If job is currently ongoing, immediately deduct stock and mark confirmed
             $job = $this->db->get_where('services_job', ['job_id' => $jobId])->row();
             if ($job && intval($job->status) === 1) {
@@ -488,10 +492,10 @@ class Job extends MY_Controller
                 $this->db->where('po_item_id', $po_item_id);
                 $this->db->update('purchase_order_items');
 
-                $insertedId = $this->db->insert_id();
                 $this->db->where('id', $insertedId);
                 $this->db->update('services_job_items', ['confirmed_by' => $this->session->userdata('userid'), 'confirmed_at' => date('Y-m-d H:i:s')]);
             }
+            $this->_recalculateJobTotals($jobId);
             echo json_encode(['status' => 'success', 'message' => 'Product added successfully']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Failed to add product']);
@@ -500,6 +504,7 @@ class Job extends MY_Controller
 
     public function addOthersItemToJob()
     {
+        $this->require_permission('job.edit');
         $jobId = $this->input->post('jobId');
         $model = $this->input->post('model');
         $description = $this->input->post('description');
@@ -540,6 +545,7 @@ class Job extends MY_Controller
 
         // Insert into the database
         if ($this->db->insert('services_job_items', $data)) {
+            $this->_recalculateJobTotals($jobId);
             echo json_encode(['status' => 'success', 'message' => 'Record added successfully']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Failed to add item']);
@@ -563,12 +569,24 @@ class Job extends MY_Controller
         $package_id = $this->input->post('package_id');
         $job_id = $this->input->post('job_id');
 
-
         if (!$package_id > 0) {
-            // Make sure you check for a valid item ID
             if (!is_null($itemId)) {
+                // Fetch the item before deleting so we can restore stock if needed
+                $item = $this->db->get_where('services_job_items', ['id' => $itemId])->row();
+                if (!$item) {
+                    echo json_encode(['status' => 'error', 'message' => 'Item not found.']);
+                    return;
+                }
+
                 $this->db->where('id', $itemId);
                 if ($this->db->delete('services_job_items')) {
+                    // Restore stock if item was a confirmed product (stock was deducted)
+                    if ($item->item_type === 'product' && $item->po_item_id > 0 && $item->confirmed_by > 0) {
+                        $this->db->set('available_stock', 'available_stock + ' . (float)$item->quantity, false);
+                        $this->db->where('po_item_id', $item->po_item_id);
+                        $this->db->update('purchase_order_items');
+                    }
+                    $this->_recalculateJobTotals($job_id);
                     echo json_encode(['status' => 'success', 'message' => 'Item deleted successfully!']);
                 } else {
                     echo json_encode(['status' => 'error', 'message' => 'Failed to delete item.']);
@@ -578,12 +596,25 @@ class Job extends MY_Controller
             }
         }
 
-
-        //if package_id > 0 then delete the all package item
+        // if package_id > 0 then delete all package items
         if ($package_id > 0) {
+            // Fetch all package items before deleting so we can restore stock for confirmed products
+            $packageItems = $this->db->get_where('services_job_items', [
+                'service_job_id' => $job_id,
+                'package_id'     => $package_id
+            ])->result();
+
             $this->db->where('service_job_id', $job_id);
             $this->db->where('package_id', $package_id);
             if ($this->db->delete('services_job_items')) {
+                foreach ($packageItems as $pItem) {
+                    if ($pItem->item_type === 'product' && $pItem->po_item_id > 0 && $pItem->confirmed_by > 0) {
+                        $this->db->set('available_stock', 'available_stock + ' . (float)$pItem->quantity, false);
+                        $this->db->where('po_item_id', $pItem->po_item_id);
+                        $this->db->update('purchase_order_items');
+                    }
+                }
+                $this->_recalculateJobTotals($job_id);
                 echo json_encode(['status' => 'success', 'message' => 'Item deleted successfully!']);
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'Failed to delete item.']);
@@ -593,6 +624,7 @@ class Job extends MY_Controller
 
     public function addDiscountToJob()
     {
+        $this->require_permission('job.edit');
         $jobId = $this->input->post('jobId');
         $discountRate = $this->input->post('discountRate');
         $discountAmount = $this->input->post('discountAmount');
@@ -629,6 +661,7 @@ class Job extends MY_Controller
         ]);
 
         if ($this->db->affected_rows() > 0) {
+            $this->_recalculateJobTotals($jobId);
             echo json_encode(['status' => 'success', 'message' => 'Discount added successfully!']);
             $this->load->model('logs_model');
             $this->logs_model->log_activity('Discount added to job', 'Job ID: ' . $jobId . ', Discount Rate: ' . $discountRate . ', Discount Amount: ' . $discountAmount);
@@ -897,33 +930,53 @@ if ($paymentMethod !== 'credit') {
             'confirmed_by' => 0
         ];
 
+        $this->db->trans_start();
+
         $this->db->where('job_id', $jobId);
         $this->db->update('services_job', $updateData);
 
-        if ($this->db->affected_rows() > 0) {
-            //update job item table
-            $this->db->where('service_job_id', $jobId);
-            $this->db->update('services_job_items', $updateData2);
+        //update job item table
+        $this->db->where('service_job_id', $jobId);
+        $this->db->update('services_job_items', $updateData2);
 
-            // If moving to Ongoing (1): deduct stock for all product items not yet confirmed
-            if (intval($status) === 1) {
-                $items = $this->db->get_where('services_job_items', ['service_job_id' => $jobId, 'item_type' => 'product'])->result();
-                foreach ($items as $it) {
-                    if (intval($it->confirmed_by) <= 0) {
-                        $this->db->set('available_stock', 'GREATEST(available_stock - ' . (float)$it->quantity . ', 0)', false);
-                        $this->db->where('po_item_id', $it->po_item_id);
-                        $this->db->update('purchase_order_items');
-                        $this->db->where('id', $it->id);
-                        $this->db->update('services_job_items', ['confirmed_by' => $userId, 'confirmed_at' => date('Y-m-d H:i:s')]);
+        // If moving to Ongoing (1): validate then deduct stock for all unconfirmed product items (F-06)
+        if (intval($status) === 1) {
+            $items = $this->db->get_where('services_job_items', ['service_job_id' => $jobId, 'item_type' => 'product'])->result();
+            $shortItems = [];
+            foreach ($items as $it) {
+                if (intval($it->confirmed_by) <= 0) {
+                    // Re-check live available_stock before deducting (race condition guard)
+                    $poRow = $this->db->get_where('purchase_order_items', ['po_item_id' => $it->po_item_id])->row();
+                    $liveStock = $poRow ? (float)$poRow->available_stock : 0;
+                    if ($liveStock < (float)$it->quantity) {
+                        $shortItems[] = $it->item_id . ' (need ' . $it->quantity . ', have ' . $liveStock . ')';
                     }
                 }
             }
+            if (!empty($shortItems)) {
+                $this->db->trans_rollback();
+                echo json_encode(['status' => 'error', 'message' => 'Insufficient stock for: ' . implode(', ', $shortItems)]);
+                return;
+            }
+            foreach ($items as $it) {
+                if (intval($it->confirmed_by) <= 0) {
+                    $this->db->set('available_stock', 'GREATEST(available_stock - ' . (float)$it->quantity . ', 0)', false);
+                    $this->db->where('po_item_id', $it->po_item_id);
+                    $this->db->update('purchase_order_items');
+                    $this->db->where('id', $it->id);
+                    $this->db->update('services_job_items', ['confirmed_by' => $userId, 'confirmed_at' => date('Y-m-d H:i:s')]);
+                }
+            }
+        }
 
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === FALSE) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to update status.']);
+        } else {
             echo json_encode(['status' => 'success', 'message' => 'Status updated successfully!']);
             $this->load->model('logs_model');
             $this->logs_model->log_activity('Job status updated', 'Job ID: ' . $jobId . ', Status: ' . $status);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Failed to update status.']);
         }
     }
 
@@ -1032,30 +1085,30 @@ if ($paymentMethod !== 'credit') {
 
         // Validate input
         if (!is_numeric($itemId)) {
-            echo json_encode(['success' => false, 'message' => 'Invalid item ID']);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid item ID']);
             return;
         }
 
         if (!is_numeric($discount)) {
-            echo json_encode(['success' => false, 'message' => 'Discount must be a number']);
+            echo json_encode(['status' => 'error', 'message' => 'Discount must be a number']);
             return;
         }
 
         if (!is_numeric($discount_amount)) {
-            echo json_encode(['success' => false, 'message' => 'Discount amount must be a number']);
+            echo json_encode(['status' => 'error', 'message' => 'Discount amount must be a number']);
             return;
         }
 
 
         $discount = floatval($discount);
         if ($discount < 0 || $discount > 100) {
-            echo json_encode(['success' => false, 'message' => 'Discount must be between 0-100%']);
+            echo json_encode(['status' => 'error', 'message' => 'Discount must be between 0-100%']);
             return;
         }
 
         //check both discount and discount_amount are same
         if ($discount > 0 && $discount_amount > 0) {
-            echo json_encode(['success' => false, 'message' => 'Please enter either a discount rate or amount, not both']);
+            echo json_encode(['status' => 'error', 'message' => 'Please enter either a discount rate or amount, not both']);
             return;
         }
 
@@ -1069,9 +1122,11 @@ if ($paymentMethod !== 'credit') {
         $this->db->update('services_job_items', $data);
 
         if ($this->db->affected_rows() > 0) {
-            echo json_encode(['success' => true, 'message' => 'Discount updated successfully']);
+            $item = $this->db->get_where('services_job_items', ['id' => $itemId])->row();
+            if ($item) $this->_recalculateJobTotals($item->service_job_id);
+            echo json_encode(['status' => 'success', 'message' => 'Discount updated successfully']);
         } else {
-            echo json_encode(['success' => false, 'message' => 'No changes made or item not found']);
+            echo json_encode(['status' => 'error', 'message' => 'No changes made or item not found']);
         }
     }
 
@@ -1144,6 +1199,7 @@ if ($paymentMethod !== 'credit') {
     // Outsource Parts Methods
     public function addOutsourcePartToJob()
     {
+        $this->require_permission('job.edit');
         $jobId = $this->input->post('jobId');
         $itemName = $this->input->post('itemName');
         $purchasedFrom = $this->input->post('purchasedFrom');
@@ -1205,6 +1261,7 @@ if ($paymentMethod !== 'credit') {
             ];
 
             $this->db->insert('services_job_items', $jobItemData);
+            $this->_recalculateJobTotals($jobId);
 
             echo json_encode(['status' => 'success', 'message' => 'Outsource part added successfully!']);
         } else {
@@ -1238,12 +1295,14 @@ if ($paymentMethod !== 'credit') {
 
         // Delete from outsource_parts table
         if ($this->services_model->deleteOutsourcePart($partId)) {
-            // Also delete the corresponding job item
+            // Also delete ONE corresponding job item (LIMIT 1 prevents cascade if names match)
             $this->db->where('service_job_id', $jobId);
             $this->db->where('item_type', 'outsource');
             $this->db->where('description', $part->item_name);
+            $this->db->limit(1);
             $this->db->delete('services_job_items');
 
+            $this->_recalculateJobTotals($jobId);
             echo json_encode(['status' => 'success', 'message' => 'Outsource part deleted successfully!']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Failed to delete outsource part']);
@@ -1283,6 +1342,7 @@ if ($paymentMethod !== 'credit') {
 
     public function confirmInvoice()
     {
+        $this->require_permission('job.invoice');
         $jobId = $this->input->post('jobId');
         
         if (empty($jobId)) {
@@ -1484,6 +1544,48 @@ if ($paymentMethod !== 'credit') {
         }
 
         return $description;
+    }
+
+    private function _recalculateJobTotals($jobId)
+    {
+        $subTotal = (float) $this->db
+            ->select('COALESCE(SUM(total_price), 0) as subtotal')
+            ->from('services_job_items')
+            ->where('service_job_id', $jobId)
+            ->get()->row()->subtotal;
+
+        $job = $this->db->get_where('services_job', ['job_id' => $jobId])->row();
+        if (!$job) return;
+
+        $discountPercent = (float)($job->discount_percent ?? 0);
+        $discountAmount  = (float)($job->discount_amount  ?? 0);
+
+        $finalBillAmount = $subTotal;
+        if ($discountPercent > 0) {
+            $finalBillAmount = $subTotal - ($subTotal * $discountPercent / 100);
+        } elseif ($discountAmount > 0) {
+            $finalBillAmount = $subTotal - $discountAmount;
+        }
+        $finalBillAmount = max(0, $finalBillAmount);
+
+        $totalPaid = (float) $this->db
+            ->select('COALESCE(SUM(paid_amount), 0) as total')
+            ->from('services_job_payments')
+            ->where('service_job_id', $jobId)
+            ->where('deleted_by IS NULL', null, false)
+            ->where('cheque_return_by IS NULL', null, false)
+            ->where('payment_method !=', 'credit')
+            ->get()->row()->total;
+
+        $totalBalance = $finalBillAmount - $totalPaid;
+
+        $this->db->where('job_id', $jobId);
+        $this->db->update('services_job', [
+            'job_cost'          => $subTotal,
+            'final_bill_amount' => $finalBillAmount,
+            'total_paid'        => $totalPaid,
+            'total_balance'     => $totalBalance,
+        ]);
     }
 
 }

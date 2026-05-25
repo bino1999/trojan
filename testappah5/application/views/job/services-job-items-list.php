@@ -12,6 +12,8 @@ $subTotal = 0;
 $totalCost = 0;
 $receivedAmount = 0;
 $balanceAmount = 0;
+$final_total_amount = 0;
+$bill_discounted_amount = 0;
                 foreach ($jobItems as $item) {
                     if ($item->item_type == 'service') {
                         $serviceCost += $item->total_price; // Add service cost
@@ -50,8 +52,6 @@ $subTotal = $serviceCost + $spareCost + $otherCost;
                 foreach ($jobItems as $item) {
                     if ($item->item_type == 'service') {
                         $item_name = $item->item_name;
-                    } elseif ($item->item_type == 'sparepart') {
-                        $item_name = $item->package_name;
                     } elseif ($item->item_type == 'product') {
                         $item_name = $item->product_name.'<br><small>'.$item->sku.'</small>';
                     } elseif ($item->item_type == 'labour') {
@@ -105,7 +105,7 @@ $subTotal = $serviceCost + $spareCost + $otherCost;
                             <?php if ($jobCurrentStatus == 4 && $item->confirmed_by > 0 && has_permission('job.approve')) {
                                 $confirm_item++;
                             ?>
-                                <button class="btn btn-warning btn-sm" id="confirm_<?= $item->id ?>" onclick="confirmJobItem(<?= $item->id ?>, 0)">
+                                <button class="btn btn-warning btn-sm" id="unconfirm_<?= $item->id ?>" onclick="confirmJobItem(<?= $item->id ?>, 0)">
                                     <i class="fa fa-undo"></i>
                                 </button>
                             <?php } ?>
@@ -202,29 +202,26 @@ $subTotal = $serviceCost + $spareCost + $otherCost;
                         </tr>
 
 
-                        <?php if (true) { ?>
-                            <tr>
-                                <td class="text-left f3">Invoice Discount Amount <?= $job_discount_percent ?>%:</td>
-                                <?php if($job_discount_amount>0){ ?>
-                                <td class="text-end f3"><?= number_format($job_discount_amount, 2) ?> &nbsp;&nbsp; LKR</td>
-                                <?php }else{ ?>
-                                    <td class="text-end f3"><?= number_format($bill_discounted_amount, 2) ?> &nbsp;&nbsp; LKR</td>
-                                    <?php } ?>
-                            </tr>
-                            <tr>
-                                <td class="text-left f3">Total:</td>
-                                <td class="text-end f3"><?= number_format($final_total_amount, 2) ?> &nbsp;&nbsp; LKR</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left f3">Paid:</td>
-                                <td class="text-end f3"><?= number_format($receivedAmount, 2) ?> &nbsp;&nbsp; LKR</td>
-                            </tr>
-                            <tr>
-                                <td class="text-left f3">Balance:</td>
-                                <td class="text-end f3"><?= number_format(max($final_total_amount - $receivedAmount, 0), 2) ?> &nbsp;&nbsp; LKR</td>
-                            </tr>
-                            
-                        <?php } ?>
+                        <tr>
+                            <td class="text-left f3">Invoice Discount Amount <?= $job_discount_percent ?>%:</td>
+                            <?php if($job_discount_amount>0){ ?>
+                            <td class="text-end f3"><?= number_format($job_discount_amount, 2) ?> &nbsp;&nbsp; LKR</td>
+                            <?php }else{ ?>
+                                <td class="text-end f3"><?= number_format($bill_discounted_amount, 2) ?> &nbsp;&nbsp; LKR</td>
+                            <?php } ?>
+                        </tr>
+                        <tr>
+                            <td class="text-left f3">Total:</td>
+                            <td class="text-end f3"><?= number_format($final_total_amount, 2) ?> &nbsp;&nbsp; LKR</td>
+                        </tr>
+                        <tr>
+                            <td class="text-left f3">Paid:</td>
+                            <td class="text-end f3"><?= number_format($receivedAmount, 2) ?> &nbsp;&nbsp; LKR</td>
+                        </tr>
+                        <tr>
+                            <td class="text-left f3">Balance:</td>
+                            <td class="text-end f3"><?= number_format(max($final_total_amount - $receivedAmount, 0), 2) ?> &nbsp;&nbsp; LKR</td>
+                        </tr>
                     </tbody>
                 </table>
 
@@ -1463,7 +1460,7 @@ $subTotal = $serviceCost + $spareCost + $otherCost;
                         discount_amount: newDiscountAmount
                     },
                     success: function(response) {
-                        if (response.success) {
+                        if (response.status === 'success') {
                             $('#discountModal').modal('hide');
                             Toastify({
                                 text: response.message,

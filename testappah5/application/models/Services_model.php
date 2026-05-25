@@ -22,7 +22,7 @@ class Services_model extends CI_Model
     $this->db->from('services_job as services');
 
     if($filter_service_type) {
-        $this->db->where('services.service_type', $filter_service_type);
+        $this->db->where("FIND_IN_SET('{$filter_service_type}', services.service_type) > 0", null, false);
     }
 
     if(!is_null($currentStatus) && $currentStatus != 'all') {
@@ -78,7 +78,7 @@ class Services_model extends CI_Model
         customers.customers_id AS customer_id, 
         customers.salutation AS salutation, 
         customers.name AS customer_name,
-        customers.mobile AS customer_mobile,
+        customers.mobile AS customer_mobile
     ');
     $this->db->from('vehicles');
     if (!is_null($vehicle_id)) {
@@ -222,13 +222,8 @@ class Services_model extends CI_Model
     ');
     $this->db->from('services_job_items');
     
-    // Join service_items table
-    $this->db->join('service_items', 'service_items.id = services_job_items.item_id', 'left');
-    
-    // Join service_packages table
-    $this->db->join('service_packages', 'service_packages.id = services_job_items.item_id', 'left');
-    
-    // Join products table only when item_type is 'product'
+    $this->db->join('service_items', 'service_items.id = services_job_items.item_id AND services_job_items.item_type = "service"', 'left');
+    $this->db->join('service_packages', 'service_packages.id = services_job_items.item_id AND services_job_items.item_type = "package"', 'left');
     $this->db->join('products', 'products.product_id = services_job_items.item_id AND services_job_items.item_type = "product"', 'left');
     
     // Filter by service_job_id
@@ -375,58 +370,41 @@ public function loadJobPayment($job_id) {
 
 public function loadAvailablePurchaseProducts($product_id = null, $supplier_id = null, $brand_id = null, $category_id = null){
     $this->db->select('
-        poi.*, 
-        p.product_name, 
-        p.sku, 
+        poi.*,
+        p.product_name,
+        p.sku,
         p.measurement_unit,
         p.barcode,
-        p.sku,
-        ib.itemBrandName AS brand_name, 
+        ib.itemBrandName AS brand_name,
         ic.itemCategoryName AS category_name,
         po.po_id,
-        s.name AS supplier_name,
-        ');
+        s.name AS supplier_name
+    ');
     $this->db->from('purchase_order_items as poi');
     $this->db->join('products as p', 'p.product_id = poi.product_id', 'left');
     $this->db->join('item_brands as ib', 'ib.itemBrandId = p.item_brand_id', 'left');
     $this->db->join('item_categories as ic', 'ic.itemCategoryId = p.item_category_id', 'left');
-
-    //join purchase_orders
     $this->db->join('purchase_orders as po', 'po.po_id = poi.po_id', 'left');
-    //join suppliers
     $this->db->join('suppliers as s', 's.supplier_id = po.supplier_id', 'left');
 
-    //get only active purchase orders
     $this->db->where('po.completed_by>0');
-
     $this->db->where('poi.available_stock>0');
+    $this->db->where('(p.inventory_type = "sale" OR p.inventory_type = "both")');
 
-    // Only show items marked for sale or both (from product definition)
-    $this->db->where('(p.inventory_type = "sale" OR p.inventory_type = "both")');  
-
-    // Supplier comes from the purchase order, not the PO item
     if ($supplier_id > 0) {
         $this->db->where('po.supplier_id', $supplier_id);
-        error_log("Filtering by supplier: $supplier_id");
     }
-
     if ($brand_id > 0) {
         $this->db->where('p.item_brand_id', $brand_id);
-        error_log("Filtering by brand: $brand_id");
     }
-
     if ($category_id > 0) {
         $this->db->where('p.item_category_id', $category_id);
-        error_log("Filtering by category: $category_id");
     }
-
     if ($product_id > 0) {
         $this->db->where('poi.product_id', $product_id);
     }
- 
-    $query = $this->db->get();
-    error_log("Final SQL query: " . $this->db->last_query());
-    return $query->result();
+
+    return $this->db->get()->result();
 }
 public function loadPurchaseProduct($po_item_id = null){
     $this->db->select('
@@ -557,17 +535,16 @@ public function loadServiceItemsCategory($sic_id = null) {
 
     public function loadAvailableInternalProducts($product_id = null, $supplier_id = null, $brand_id = null, $category_id = null){
         $this->db->select('
-            poi.*, 
-            p.product_name, 
-            p.sku, 
+            poi.*,
+            p.product_name,
+            p.sku,
             p.measurement_unit,
             p.barcode,
-            p.sku,
-            ib.itemBrandName AS brand_name, 
+            ib.itemBrandName AS brand_name,
             ic.itemCategoryName AS category_name,
             po.po_id,
-            s.name AS supplier_name,
-            ');
+            s.name AS supplier_name
+        ');
         $this->db->from('purchase_order_items as poi');
         $this->db->join('products as p', 'p.product_id = poi.product_id', 'left');
         $this->db->join('item_brands as ib', 'ib.itemBrandId = p.item_brand_id', 'left');

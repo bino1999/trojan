@@ -73,18 +73,18 @@
                                     </tr>
                                 </thead>
                                 <tbody id="productsBody">
-                                    <?php foreach ($products as $products) : ?>
+                                    <?php foreach ($products as $product) : ?>
                                         <tr class="products-row">
-                                            <td class="f12"><?= $products->product_name ?></td>
-                                            <td class="f12"><?= $products->sku ?></td>
-                                            <td class="f12"><?= $products->supplier_name ?></td>
-                                            <td class="f12"><?= $products->brand_name ?></td>
-                                            <td class="f12"><?= $products->category_name ?></td>
-                                            <td class="f12 text-end"><?= number_format($products->sale_price, 2) ?></td>
-                                            <td class="f12"><?= $products->measurement_unit ?></td>
-                                            <td class="f12 text-end"><?= $products->available_stock ?></td>
+                                            <td class="f12"><?= $product->product_name ?></td>
+                                            <td class="f12"><?= $product->sku ?></td>
+                                            <td class="f12"><?= $product->supplier_name ?></td>
+                                            <td class="f12"><?= $product->brand_name ?></td>
+                                            <td class="f12"><?= $product->category_name ?></td>
+                                            <td class="f12 text-end"><?= number_format($product->sale_price, 2) ?></td>
+                                            <td class="f12"><?= $product->measurement_unit ?></td>
+                                            <td class="f12 text-end"><?= $product->available_stock ?></td>
                                             <td class="text-center">
-                                                <button type="button" class="btn btn-primary btn-sm" onclick="addProductsToJob(<?= $products->po_item_id  ?>, <?= $products->product_id  ?>, '<?= htmlspecialchars($products->product_name, ENT_QUOTES, 'UTF-8') ?>', '<?= $products->measurement_unit ?>', '<?= $products->discount_percent ?>', '<?= $products->discount_amount ?>', <?= json_encode((float)$products->sale_price) ?>, <?= json_encode((float)$products->company_price) ?>)">
+                                                <button type="button" class="btn btn-primary btn-sm" onclick="addProductsToJob(<?= $product->po_item_id  ?>, <?= $product->product_id  ?>, '<?= htmlspecialchars($product->product_name, ENT_QUOTES, 'UTF-8') ?>', '<?= $product->measurement_unit ?>', '<?= $product->discount_percent ?>', '<?= $product->discount_amount ?>', <?= json_encode((float)$product->sale_price) ?>, <?= json_encode((float)$product->company_price) ?>)">
                                                     <i class="fa fa-plus"></i>
                                                 </button>
                                             </td>

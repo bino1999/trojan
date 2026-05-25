@@ -116,8 +116,8 @@ $billRow = !empty($bill) ? $bill[0] : null;
                 <?php endif; ?>
             </div>
             <div class="col-md-6">
-                <label for="editPaymentMethod" class="form-label">Payment Method:</label>
-                <select class="form-control" id="editPaymentMethod" required disabled>
+                <label for="billPaymentMethod" class="form-label">Payment Method:</label>
+                <select class="form-control" id="billPaymentMethod" required disabled>
                     <?php foreach ($payment_methods as $method): ?>
                         <option value="<?= $method ?>" <?= ($paymentMethod == $method) ? 'selected' : '' ?>>
                             <?= $method ?>
@@ -255,7 +255,7 @@ $(document).ready(function() {
     $('#enableEditBtn').on('click', function() {
         $('#editQuickBillForm .form-control').prop('disabled', false);
         $('#editQuickBillForm .btn-danger').prop('disabled', false);
-        $('#editPaymentMethod').prop('disabled', false);
+        $('#billPaymentMethod').prop('disabled', false);
         $('#editCustomer').prop('disabled', false);
         $('#updateBillBtn').prop('disabled', false);
         
@@ -331,7 +331,7 @@ function updateQuickBill() {
     const formData = new FormData();
     formData.append('bill_id', $('#editBillId').val());
     formData.append('customerId', $('#editCustomer').val());
-    formData.append('paymentMethod', $('#editPaymentMethod').val());
+    formData.append('paymentMethod', $('#billPaymentMethod').val());
     
     // Add required parameters (even if empty since we removed the sections)
     formData.append('paidAmount', '0'); // Not used in edit mode since payments are handled separately
@@ -553,6 +553,7 @@ function showEditPaymentModal(payment) {
     const needsReference = (method.toLowerCase() === 'card' || method.toLowerCase() === 'cheque' || method.toLowerCase() === 'bank transfer');
     const needsBank = (method.toLowerCase() === 'cheque' || method.toLowerCase() === 'bank transfer');
     const needsChequeDate = (method.toLowerCase() === 'cheque');
+    const needsCredit = (method.toLowerCase() === 'credit');
     
     // Create custom modal HTML
     const modalHtml = `
@@ -618,6 +619,10 @@ function showEditPaymentModal(payment) {
                                 <label class="form-label">Cheque Date:</label>
                                 <input type="date" class="form-control" id="editPaymentChequeDate" value="${payment.cheque_date || ''}">
             </div>
+            <div class="mb-3" id="creditDueDateField" style="display: ${needsCredit ? 'block' : 'none'};">
+                <label class="form-label">Credit Due Date: <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" id="editCreditDueDate" value="${payment.credit_pay_date || ''}">
+            </div>
             <div class="mb-3">
                 <label class="form-label">Note:</label>
                                 <textarea class="form-control" id="editPaymentNote" rows="2" placeholder="Enter payment note">${payment.note || ''}</textarea>
@@ -654,22 +659,29 @@ function showEditPaymentModal(payment) {
         const reference = $('#editPaymentReference').val();
         const bank = $('#editPaymentBank').val();
         const chequeDate = $('#editPaymentChequeDate').val();
+        const creditDueDate = $('#editCreditDueDate').val();
         const note = $('#editPaymentNote').val();
-            
+
             if (!method || !amount) {
             Swal.fire('Error', 'Payment method and amount are required', 'error');
             return;
             }
-            
+
+        if (method.toLowerCase() === 'credit' && !creditDueDate) {
+            Swal.fire('Error', 'Credit due date is required for credit payments', 'error');
+            return;
+        }
+
         const paymentData = {
                 method: method,
                 amount: amount,
                 reference: reference,
                 bank: bank,
             chequeDate: chequeDate,
+            creditDueDate: creditDueDate,
                 note: note
             };
-        
+
         updatePayment(payment.id, paymentData);
         modal.hide();
     });
@@ -686,14 +698,17 @@ function toggleEditPaymentFields() {
     const referenceField = document.getElementById('referenceField');
     const bankField = document.getElementById('bankField');
     const chequeDateField = document.getElementById('chequeDateField');
-    
+    const creditDueDateField = document.getElementById('creditDueDateField');
+
     const needsReference = (method === 'card' || method === 'cheque' || method === 'bank transfer');
     const needsBank = (method === 'cheque' || method === 'bank transfer');
     const needsChequeDate = (method === 'cheque');
-    
+    const needsCredit = (method === 'credit');
+
     if (referenceField) referenceField.style.display = needsReference ? 'block' : 'none';
     if (bankField) bankField.style.display = needsBank ? 'block' : 'none';
     if (chequeDateField) chequeDateField.style.display = needsChequeDate ? 'block' : 'none';
+    if (creditDueDateField) creditDueDateField.style.display = needsCredit ? 'block' : 'none';
 }
 
 // Toggle payment fields based on selected method (for add modal)
@@ -724,6 +739,7 @@ function updatePayment(paymentId, paymentData) {
             card_or_cheque_no: paymentData.reference,
             bank_name: paymentData.bank,
             cheque_date: paymentData.chequeDate,
+            credit_pay_date: paymentData.creditDueDate,
             note: paymentData.note
         },
         success: function(response) {

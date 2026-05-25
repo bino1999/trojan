@@ -88,10 +88,11 @@ class InternalBill_model extends CI_Model
         // Get bill items to restore stock
         $items = $this->get_internal_bill_items($bill_id);
         foreach ($items as $item) {
-            // Restore stock
-            $this->db->set('available_stock', 'available_stock + ' . (float)$item->quantity, false);
-            $this->db->where('po_item_id', $item->po_item_id);
-            $this->db->update('purchase_order_items');
+            if (!empty($item->po_item_id) && $item->po_item_id > 0) {
+                $this->db->set('available_stock', 'available_stock + ' . (float)$item->quantity, false);
+                $this->db->where('po_item_id', $item->po_item_id);
+                $this->db->update('purchase_order_items');
+            }
         }
 
         // Delete bill items

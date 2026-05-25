@@ -140,14 +140,16 @@ class QuickBill_model extends CI_Model
                 }
             }
             
-            // Store deletion record
+            // Store deletion record — fetch bill once to avoid duplicate queries
+            $billRecord = $this->get_bill_by_id($billId);
+            $billRow = !empty($billRecord) ? $billRecord[0] : null;
             $deletionData = [
-                'quick_bill_id' => $billId,
-                'customer_id' => $this->get_bill_by_id($billId)[0]->customer_id ?? 0,
-                'bill_amount' => $this->get_bill_by_id($billId)[0]->final_bill_amount ?? 0,
+                'quick_bill_id'   => $billId,
+                'customer_id'     => $billRow->customer_id ?? 0,
+                'bill_amount'     => $billRow->final_bill_amount ?? 0,
                 'deletion_reason' => $deletionReason,
-                'deleted_by' => $deletedBy,
-                'items_summary' => implode(', ', $itemsSummary)
+                'deleted_by'      => $deletedBy,
+                'items_summary'   => implode(', ', $itemsSummary),
             ];
             
             $this->db->insert('quick_bill_deletions', $deletionData);
