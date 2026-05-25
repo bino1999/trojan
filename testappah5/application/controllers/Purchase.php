@@ -672,14 +672,14 @@ public function stockManage() {
         $internal_out = $stock_summary[$pid]['internal_out']  ?? 0;
         $stock_out    = $job_out + $bill_out + $internal_out;
 
-        // Closing balance
-        $closing = $open_balance + $stock_in - $stock_out;
-
         // Assign to product object
         $p->open_balance    = $open_balance;
         $p->stock_in        = $stock_in;
         $p->stock_out       = $stock_out;
-        $p->closing_balance = $closing;
+        // Use the actual available_stock sum from purchase_order_items as the
+        // authoritative closing balance — the formula-based approach breaks when
+        // purchases span multiple batches with different date ranges.
+        $p->closing_balance = (float)$p->available_stock;
     }
     unset($p);
 
@@ -1279,14 +1279,11 @@ public function stockManage() {
                 $internal_out = $stock_summary[$pid]['internal_out']  ?? 0;
                 $stock_out    = $job_out + $bill_out + $internal_out;
 
-                // Closing balance
-                $closing = $open_balance + $stock_in - $stock_out;
-
                 // Assign to product object
                 $p->open_balance    = $open_balance;
                 $p->stock_in        = $stock_in;
                 $p->stock_out       = $stock_out;
-                $p->closing_balance = $closing;
+                $p->closing_balance = (float)$p->available_stock;
             }
             unset($p);
 
