@@ -1,6 +1,12 @@
 const supabase = require('../config/supabase')
 const stockService = require('../services/stockService')
 
+function addId(data) {
+  if (!data) return data
+  if (Array.isArray(data)) return data.map(r => ({ ...r, id: r.purchase_order_id }))
+  return { ...data, id: data.purchase_order_id }
+}
+
 exports.list = async (req, res, next) => {
   try {
     const { data, error } = await supabase
@@ -8,7 +14,7 @@ exports.list = async (req, res, next) => {
       .select('*, suppliers(name)')
       .order('order_date', { ascending: false })
     if (error) throw error
-    res.json(data)
+    res.json(addId(data))
   } catch (err) { next(err) }
 }
 
@@ -20,7 +26,7 @@ exports.get = async (req, res, next) => {
       .eq('purchase_order_id', req.params.id)
       .single()
     if (error) throw error
-    res.json(data)
+    res.json(addId(data))
   } catch (err) { next(err) }
 }
 
@@ -47,13 +53,13 @@ exports.create = async (req, res, next) => {
       if (itemErr) throw itemErr
     }
 
-    res.status(201).json(po)
+    res.status(201).json(addId(po))
   } catch (err) { next(err) }
 }
 
 exports.update = async (req, res, next) => {
   try {
-    const { supplier_id, order_date, invoice_number, notes, items } = req.body
+    const { supplier_id, order_date, invoice_number, notes } = req.body
     const { data, error } = await supabase
       .from('purchase_orders')
       .update({ supplier_id, order_date, invoice_number, notes })
@@ -61,7 +67,7 @@ exports.update = async (req, res, next) => {
       .eq('status', 'pending')
       .select().single()
     if (error) throw error
-    res.json(data)
+    res.json(addId(data))
   } catch (err) { next(err) }
 }
 

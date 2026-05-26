@@ -7,6 +7,7 @@ import Products from '@/pages/products'
 import Suppliers from '@/pages/suppliers'
 import Inventory from '@/pages/inventory'
 import Purchases from '@/pages/purchases'
+import Customers from '@/pages/customers'
 import InternalUse from '@/pages/internal-use'
 import ServiceJobs from '@/pages/service-jobs'
 import Sales from '@/pages/sales'
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="suppliers" element={<Suppliers />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="purchases" element={<Purchases />} />
+        <Route path="customers" element={<Customers />} />
         <Route path="internal-use" element={<InternalUse />} />
         <Route path="service-jobs" element={<ServiceJobs />} />
         <Route path="sales" element={<Sales />} />

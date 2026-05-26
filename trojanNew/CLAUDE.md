@@ -21,6 +21,14 @@ trojanNew/
 
 ---
 
+## Backend Task Status
+See [backend_tasks.md](backend_tasks.md) for a live checklist of which endpoints are implemented. Use it to resume after a session break.
+
+## Frontend Task Status
+See [frontend_tasks.md](frontend_tasks.md) for a live checklist of which pages and components are implemented. Use it to resume frontend work after a session break.
+
+---
+
 ## Running the Project
 
 ### Frontend
@@ -45,7 +53,7 @@ npm run dev          # starts on http://localhost:3001
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 JWT_SECRET=
-PORT=3001
+PORT=3003
 ```
 
 **frontend/.env** — fill in when Supabase project is ready:

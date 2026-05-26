@@ -8,11 +8,13 @@ import {
   Warehouse,
   ShoppingCart,
   Wrench,
+  ClipboardList,
   ReceiptText,
   RotateCcw,
   AlertTriangle,
   BarChart2,
   Users,
+  UserCircle,
 } from 'lucide-react'
 
 const navItems = [
@@ -21,8 +23,9 @@ const navItems = [
   { to: '/suppliers', label: 'Suppliers', icon: Truck, roles: ['admin', 'manager', 'warehouse'] },
   { to: '/inventory', label: 'Inventory', icon: Warehouse, roles: ['admin', 'manager', 'cashier', 'technician', 'warehouse'] },
   { to: '/purchases', label: 'Purchase Orders', icon: ShoppingCart, roles: ['admin', 'manager', 'warehouse'] },
+  { to: '/customers', label: 'Customers', icon: UserCircle, roles: ['admin', 'manager', 'cashier', 'technician'] },
   { to: '/internal-use', label: 'Internal Use', icon: Wrench, roles: ['admin', 'manager', 'warehouse', 'technician'] },
-  { to: '/service-jobs', label: 'Service Jobs', icon: Wrench, roles: ['admin', 'manager', 'technician'] },
+  { to: '/service-jobs', label: 'Service Jobs', icon: ClipboardList, roles: ['admin', 'manager', 'technician'] },
   { to: '/sales', label: 'Direct Sales', icon: ReceiptText, roles: ['admin', 'manager', 'cashier'] },
   { to: '/returns', label: 'Returns', icon: RotateCcw, roles: ['admin', 'manager', 'cashier'] },
   { to: '/adjustments', label: 'Adjustments', icon: AlertTriangle, roles: ['admin', 'manager', 'warehouse'] },

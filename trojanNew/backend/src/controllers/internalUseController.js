@@ -1,6 +1,12 @@
 const supabase = require('../config/supabase')
 const stockService = require('../services/stockService')
 
+function addId(data) {
+  if (!data) return data
+  if (Array.isArray(data)) return data.map(r => ({ ...r, id: r.internal_use_id }))
+  return { ...data, id: data.internal_use_id }
+}
+
 exports.list = async (req, res, next) => {
   try {
     const { data, error } = await supabase
@@ -8,7 +14,7 @@ exports.list = async (req, res, next) => {
       .select('*, products(name), inventory(qty_in_stock)')
       .order('date_used', { ascending: false })
     if (error) throw error
-    res.json(data)
+    res.json(addId(data))
   } catch (err) { next(err) }
 }
 
@@ -20,7 +26,7 @@ exports.get = async (req, res, next) => {
       .eq('internal_use_id', req.params.id)
       .single()
     if (error) throw error
-    res.json(data)
+    res.json(addId(data))
   } catch (err) { next(err) }
 }
 
@@ -34,6 +40,6 @@ exports.create = async (req, res, next) => {
       .insert({ inventory_id, product_id, qty_used, purpose, used_by: req.user.id, date_used, notes })
       .select().single()
     if (error) throw error
-    res.status(201).json(data)
+    res.status(201).json(addId(data))
   } catch (err) { next(err) }
 }
