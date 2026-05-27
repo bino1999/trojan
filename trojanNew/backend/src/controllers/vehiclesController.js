@@ -20,7 +20,7 @@ exports.list = async (req, res, next) => {
     const { data, error } = await supabase
       .from('vehicles')
       .select('*, customers(name)')
-      .order('registration_number')
+      .order('plate_number')
     if (error) throw error
     res.json(mapVehicles(data))
   } catch (err) { next(err) }
@@ -44,7 +44,7 @@ exports.create = async (req, res, next) => {
     const reg = registration_number ?? plate_number
     const { data, error } = await supabase
       .from('vehicles')
-      .insert({ customer_id, plate_number: reg, registration_number: reg, make, model, year, color, mileage_in })
+      .insert({ customer_id, plate_number: reg, make, model, year, color, mileage_in })
       .select()
       .single()
     if (error) throw error
@@ -58,7 +58,7 @@ exports.update = async (req, res, next) => {
     const reg = registration_number ?? plate_number
     const { data, error } = await supabase
       .from('vehicles')
-      .update({ plate_number: reg, registration_number: reg, make, model, year, color, mileage_in })
+      .update({ plate_number: reg, make, model, year, color, mileage_in })
       .eq('vehicle_id', req.params.id)
       .select()
       .single()
@@ -73,7 +73,7 @@ exports.listByCustomer = async (req, res, next) => {
       .from('vehicles')
       .select('*')
       .eq('customer_id', req.params.id)
-      .order('registration_number')
+      .order('plate_number')
     if (error) throw error
     res.json(mapVehicles(data))
   } catch (err) { next(err) }

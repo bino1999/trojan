@@ -20,7 +20,7 @@ export default function Login() {
       setAuth(data.user, data.token, data.role)
       navigate('/')
     } catch (err) {
-      setError(err.message || 'Invalid credentials')
+      setError(err.error || err.message || 'Invalid credentials')
     } finally {
       setLoading(false)
     }

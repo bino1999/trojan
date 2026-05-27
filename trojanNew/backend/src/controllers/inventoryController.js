@@ -10,7 +10,7 @@ exports.list = async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from('inventory')
-      .select('*, products(name, sku, category, unit), suppliers(name)')
+      .select('*, products(name, category, unit), suppliers(name)')
       .order('created_at', { ascending: false })
     if (error) throw error
     res.json(addId(data))

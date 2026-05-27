@@ -15,12 +15,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 function NewSaleModal({ open, onOpenChange, customers, products, inventory, onSave, saving }) {
-  const [customerId, setCustomerId] = useState('')
+  const [customerId, setCustomerId] = useState('none')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
   const [notes, setNotes] = useState('')
   const [items, setItems] = useState([{ product_id: '', qty_sold: 1 }])
 
   function handleOpen(isOpen) {
-    if (isOpen) { setCustomerId(''); setNotes(''); setItems([{ product_id: '', qty_sold: 1 }]) }
+    if (isOpen) { setCustomerId('none'); setPaymentMethod('cash'); setNotes(''); setItems([{ product_id: '', qty_sold: 1 }]) }
     onOpenChange(isOpen)
   }
 
@@ -41,9 +42,19 @@ function NewSaleModal({ open, onOpenChange, customers, products, inventory, onSa
   function handleSubmit(e) {
     e.preventDefault()
     onSave({
-      customer_id: customerId || null,
+      customer_id: customerId === 'none' ? null : customerId,
+      payment_method: paymentMethod,
       notes,
-      items: items.map((it) => ({ product_id: it.product_id, qty_sold: Number(it.qty_sold) })),
+      sale_date: new Date().toISOString().split('T')[0],
+      items: items.map((it) => {
+        const inv = inventory.find((i) => i.product_id === it.product_id)
+        return {
+          product_id: it.product_id,
+          qty_sold: Number(it.qty_sold),
+          inventory_id: inv?.inventory_id ?? inv?.id,
+          unit_price: inv?.selling_price ?? 0,
+        }
+      }),
     })
   }
 
@@ -57,8 +68,20 @@ function NewSaleModal({ open, onOpenChange, customers, products, inventory, onSa
             <Select value={customerId} onValueChange={setCustomerId}>
               <SelectTrigger className="mt-1"><SelectValue placeholder="Walk-in / no customer" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Walk-in</SelectItem>
+                <SelectItem value="none">Walk-in</SelectItem>
                 {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label>Payment Method *</Label>
+            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">Cash</SelectItem>
+                <SelectItem value="card">Card</SelectItem>
+                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -143,6 +166,7 @@ function SaleDetailModal({ sale, open, onOpenChange }) {
             <div><span className="text-muted-foreground">Customer:</span> <span className="font-medium">{s?.customers?.name ?? 'Walk-in'}</span></div>
             <div><span className="text-muted-foreground">Date:</span> {formatDate(s?.created_at)}</div>
             <div><span className="text-muted-foreground">Total:</span> <span className="font-semibold">{formatCurrency(s?.total_amount)}</span></div>
+            <div><span className="text-muted-foreground">Payment:</span> <span className="font-medium capitalize">{s?.payment_method?.replace('_', ' ') ?? '—'}</span></div>
           </div>
           {s?.notes && <p className="text-muted-foreground italic">{s.notes}</p>}
           <div className="rounded-md border overflow-hidden">

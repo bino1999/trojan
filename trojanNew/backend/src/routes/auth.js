@@ -1,11 +1,22 @@
 const router = require('express').Router()
+const { createClient } = require('@supabase/supabase-js')
 const supabase = require('../config/supabase')
 const auth = require('../middleware/auth')
 
 router.post('/login', async (req, res, next) => {
   try {
     const { email, password } = req.body
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+    // Use a fresh client for sign-in so the shared service-role client's
+    // session is never overwritten (signInWithPassword sets in-memory session,
+    // which would cause subsequent DB queries to run as the user and be
+    // blocked by RLS instead of using the service role key).
+    const signInClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+    const { data, error } = await signInClient.auth.signInWithPassword({ email, password })
     if (error) return res.status(401).json({ error: error.message })
 
     const { data: profile } = await supabase

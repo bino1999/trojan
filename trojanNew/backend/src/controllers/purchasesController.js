@@ -74,6 +74,18 @@ exports.update = async (req, res, next) => {
 exports.receive = async (req, res, next) => {
   try {
     const { received_date, items } = req.body
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No items provided' })
+    }
+    const { data: po, error: poFetchErr } = await supabase
+      .from('purchase_orders')
+      .select('status')
+      .eq('purchase_order_id', req.params.id)
+      .single()
+    if (poFetchErr) throw poFetchErr
+    if (po.status !== 'pending') {
+      return res.status(400).json({ error: `PO is already ${po.status}` })
+    }
     await stockService.receivePurchaseOrder(req.params.id, received_date, items)
     res.json({ success: true })
   } catch (err) { next(err) }

@@ -11,7 +11,7 @@ exports.list = async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from('service_jobs')
-      .select('*, customers(name), vehicles(registration_number, plate_number, make, model)')
+      .select('*, customers(name), vehicles(plate_number, make, model)')
       .order('job_date', { ascending: false })
     if (error) throw error
     const mapped = (data ?? []).map(r => ({
