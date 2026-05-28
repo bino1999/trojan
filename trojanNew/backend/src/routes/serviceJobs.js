@@ -8,6 +8,7 @@ router.post('/',                    roleGuard('admin', 'manager', 'technician'),
 router.put('/:id',                  roleGuard('admin', 'manager', 'technician'), c.update)
 router.post('/:id/items',           roleGuard('admin', 'manager', 'technician'), c.addItem)
 router.delete('/:id/items/:itemId', roleGuard('admin', 'manager', 'technician'), c.removeItem)
+router.put('/:id/status',           roleGuard('admin', 'manager', 'technician'), c.setStatus)
 router.post('/:id/complete',        roleGuard('admin', 'manager'), c.complete)
 
 module.exports = router

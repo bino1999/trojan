@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Search } from 'lucide-react'
 import api from '@/lib/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import PageHeader from '@/components/shared/PageHeader'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Search } from 'lucide-react'
 
 export default function Inventory() {
   const [query, setQuery] = useState('')
@@ -75,7 +73,9 @@ export default function Inventory() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Product</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">SKU</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Category</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Bought</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">In Stock</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Sold</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Reorder</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Selling Price</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last Updated</th>
@@ -85,7 +85,7 @@ export default function Inventory() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No inventory records found.</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">No inventory records found.</td>
                 </tr>
               ) : (
                 filtered.map((item) => {
@@ -95,10 +95,12 @@ export default function Inventory() {
                       <td className="px-4 py-3 font-medium">{item.products?.name ?? '—'}</td>
                       <td className="px-4 py-3 text-muted-foreground">{item.products?.sku ?? '—'}</td>
                       <td className="px-4 py-3">{item.products?.category ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-muted-foreground">{item.qty_bought ?? 0}</td>
                       <td className={cn('px-4 py-3 text-right font-semibold', isLow && 'text-yellow-700')}>
                         {item.qty_in_stock}
                         {isLow && <AlertTriangle className="inline h-3.5 w-3.5 ml-1 text-yellow-600" />}
                       </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground">{item.qty_sold ?? 0}</td>
                       <td className="px-4 py-3 text-right text-muted-foreground">{item.reorder_level ?? '—'}</td>
                       <td className="px-4 py-3 text-right">{formatCurrency(item.selling_price)}</td>
                       <td className="px-4 py-3 text-muted-foreground">{formatDate(item.updated_at)}</td>

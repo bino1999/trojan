@@ -48,13 +48,16 @@ async function adjustStock(inventory_id, qty_adjusted) {
   if (error) throw error
 }
 
-async function receivePurchaseOrder(purchase_order_id, received_date, items) {
+// skipStatusUpdate=true when the PO was already created as 'received' (complete flow)
+async function receivePurchaseOrder(purchase_order_id, received_date, items, skipStatusUpdate = false) {
   for (const item of items) {
-    const { error: updateItem } = await supabase
-      .from('purchase_order_items')
-      .update({ qty_received: item.qty_received })
-      .eq('po_item_id', item.po_item_id)
-    if (updateItem) throw updateItem
+    if (!skipStatusUpdate) {
+      const { error: updateItem } = await supabase
+        .from('purchase_order_items')
+        .update({ qty_received: item.qty_received })
+        .eq('po_item_id', item.po_item_id)
+      if (updateItem) throw updateItem
+    }
 
     const { data: existing } = await supabase
       .from('inventory')
@@ -71,23 +74,29 @@ async function receivePurchaseOrder(purchase_order_id, received_date, items) {
       if (error) throw error
     } else {
       const { error } = await supabase.from('inventory').insert({
-        product_id: item.product_id,
-        supplier_id: item.supplier_id,
+        product_id:       item.product_id,
+        supplier_id:      item.supplier_id,
         purchase_order_id,
-        qty_in_stock: item.qty_received,
-        company_price: item.company_price,
-        selling_price: item.selling_price,
-        reorder_level: item.reorder_level ?? 5,
+        qty_in_stock:     item.qty_received,
+        company_price:    item.company_price,
+        selling_price:    item.selling_price,
+        reorder_level:    item.reorder_level     ?? 5,
+        rack_no:          item.rack_no           ?? null,
+        bin_no:           item.bin_no            ?? null,
+        is_genuine:       item.is_genuine        ?? true,
+        discount_percent: item.discount_percent  ?? 0,
       })
       if (error) throw error
     }
   }
 
-  const { error: poErr } = await supabase
-    .from('purchase_orders')
-    .update({ status: 'received', received_date })
-    .eq('purchase_order_id', purchase_order_id)
-  if (poErr) throw poErr
+  if (!skipStatusUpdate) {
+    const { error: poErr } = await supabase
+      .from('purchase_orders')
+      .update({ status: 'received', received_date })
+      .eq('purchase_order_id', purchase_order_id)
+    if (poErr) throw poErr
+  }
 }
 
 module.exports = { decrementStock, incrementStock, adjustStock, receivePurchaseOrder }

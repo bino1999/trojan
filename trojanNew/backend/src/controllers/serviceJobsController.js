@@ -11,7 +11,7 @@ exports.list = async (req, res, next) => {
   try {
     const { data, error } = await supabase
       .from('service_jobs')
-      .select('*, customers(name), vehicles(plate_number, make, model)')
+      .select('*, customers(name), vehicles(plate_number, registration_number, make, model)')
       .order('job_date', { ascending: false })
     if (error) throw error
     const mapped = (data ?? []).map(r => ({
@@ -51,22 +51,29 @@ exports.create = async (req, res, next) => {
       customer_id, vehicle_id,
       assigned_technician, technician_id,
       job_date, labor_description, labor_cost, notes,
+      mileage_in, customer_complaint, service_type,
     } = req.body
 
     const techId = assigned_technician ?? technician_id ?? null
-    const date = job_date ?? new Date().toISOString().slice(0, 10)
+    const date   = job_date ?? new Date().toISOString().slice(0, 10)
+    const svcType = service_type ?? 'normal'
+    // Estimate jobs start with status 'estimate'; all others start 'open'
+    const initialStatus = svcType === 'estimate' ? 'estimate' : 'open'
 
     const { data, error } = await supabase
       .from('service_jobs')
       .insert({
-        customer_id: customer_id || null,
-        vehicle_id: vehicle_id || null,
+        customer_id:        customer_id || null,
+        vehicle_id:         vehicle_id  || null,
         assigned_technician: techId,
-        job_date: date,
+        job_date:           date,
         labor_description,
-        labor_cost: labor_cost ?? 0,
+        labor_cost:         labor_cost ?? 0,
         notes,
-        status: 'open',
+        mileage_in:         mileage_in  || null,
+        customer_complaint,
+        service_type:       svcType,
+        status:             initialStatus,
       })
       .select().single()
     if (error) throw error
@@ -76,11 +83,39 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const { labor_description, labor_cost, notes, assigned_technician, technician_id } = req.body
+    const {
+      labor_description, labor_cost, notes,
+      assigned_technician, technician_id,
+      mileage_in, customer_complaint, service_type,
+    } = req.body
     const techId = assigned_technician ?? technician_id ?? null
     const { data, error } = await supabase
       .from('service_jobs')
-      .update({ labor_description, labor_cost, notes, assigned_technician: techId })
+      .update({
+        labor_description, labor_cost, notes,
+        assigned_technician: techId,
+        mileage_in,
+        customer_complaint,
+        service_type,
+      })
+      .eq('job_id', req.params.id)
+      .select().single()
+    if (error) throw error
+    res.json(addId(data))
+  } catch (err) { next(err) }
+}
+
+const VALID_STATUSES = ['estimate', 'open', 'in_progress', 'waiting_for_parts', 'completed', 'invoiced']
+
+exports.setStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body
+    if (!VALID_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` })
+    }
+    const { data, error } = await supabase
+      .from('service_jobs')
+      .update({ status })
       .eq('job_id', req.params.id)
       .select().single()
     if (error) throw error
@@ -115,6 +150,7 @@ exports.removeItem = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// Kept for backward compatibility — delegates to setStatus logic
 exports.complete = async (req, res, next) => {
   try {
     const { error } = await supabase
