@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt, Search, Check } from 'lucide-react'
 import api from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -28,10 +28,50 @@ function statusBadge(status) {
   return <Badge variant={map[status] ?? 'secondary'}>{status?.replace(/_/g, ' ')}</Badge>
 }
 
+// ─── Inline toggle used for Existing / New customer and vehicle ───────────────
+function ModeToggle({ value, onChange, options }) {
+  return (
+    <div className="flex rounded-md border overflow-hidden text-xs">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`px-3 py-1 transition-colors ${
+            value === o.value
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background hover:bg-muted'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── New Job Modal ────────────────────────────────────────────────────────────
 function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, saving }) {
-  const [customerId,         setCustomerId]         = useState('')
-  const [vehicleId,          setVehicleId]          = useState('')
+  const qc = useQueryClient()
+
+  // Customer
+  const [customerMode,    setCustomerMode]    = useState('existing')
+  const [customerId,      setCustomerId]      = useState('')
+  const [newCustName,     setNewCustName]     = useState('')
+  const [newCustPhone,    setNewCustPhone]    = useState('')
+  const [newCustEmail,    setNewCustEmail]    = useState('')
+  const [newCustAddress,  setNewCustAddress]  = useState('')
+
+  // Vehicle
+  const [vehicleMode,   setVehicleMode]   = useState('existing')
+  const [vehicleId,     setVehicleId]     = useState('')
+  const [newVehPlate,   setNewVehPlate]   = useState('')
+  const [newVehMake,    setNewVehMake]    = useState('')
+  const [newVehModel,   setNewVehModel]   = useState('')
+  const [newVehYear,    setNewVehYear]    = useState('')
+  const [newVehColor,   setNewVehColor]   = useState('')
+
+  // Job fields
   const [technicianId,       setTechnicianId]       = useState('')
   const [serviceType,        setServiceType]        = useState('normal')
   const [mileageIn,          setMileageIn]          = useState('')
@@ -39,14 +79,20 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
   const [laborDescription,   setLaborDescription]   = useState('')
   const [laborCost,          setLaborCost]          = useState('')
   const [notes,              setNotes]              = useState('')
+  const [localSaving,        setLocalSaving]        = useState(false)
 
   const customerVehicles = vehicles.filter((v) => v.customer_id === customerId)
   const technicians      = users.filter((u) => ['technician', 'admin', 'manager'].includes(u.role))
+  const isSaving         = localSaving || saving
 
   function reset() {
-    setCustomerId(''); setVehicleId(''); setTechnicianId('')
-    setServiceType('normal'); setMileageIn(''); setCustomerComplaint('')
-    setLaborDescription(''); setLaborCost(''); setNotes('')
+    setCustomerMode('existing'); setCustomerId('')
+    setNewCustName(''); setNewCustPhone(''); setNewCustEmail(''); setNewCustAddress('')
+    setVehicleMode('existing'); setVehicleId('')
+    setNewVehPlate(''); setNewVehMake(''); setNewVehModel(''); setNewVehYear(''); setNewVehColor('')
+    setTechnicianId(''); setServiceType('normal'); setMileageIn('')
+    setCustomerComplaint(''); setLaborDescription(''); setLaborCost(''); setNotes('')
+    setLocalSaving(false)
   }
 
   function handleOpen(isOpen) {
@@ -54,19 +100,54 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
     onOpenChange(isOpen)
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    onSave({
-      customer_id:        customerId        || null,
-      vehicle_id:         vehicleId         || null,
-      technician_id:      technicianId      || null,
-      service_type:       serviceType,
-      mileage_in:         mileageIn         ? Number(mileageIn)  : null,
-      customer_complaint: customerComplaint || null,
-      labor_description:  laborDescription  || null,
-      labor_cost:         laborCost         ? Number(laborCost)  : 0,
-      notes:              notes             || null,
-    })
+    setLocalSaving(true)
+    try {
+      // Step 1: create customer if new
+      let cId = customerId || null
+      if (customerMode === 'new') {
+        const created = await api.post('/customers', {
+          name:    newCustName.trim(),
+          phone:   newCustPhone   || null,
+          email:   newCustEmail   || null,
+          address: newCustAddress || null,
+        })
+        cId = created.id
+        qc.invalidateQueries({ queryKey: ['customers'] })
+      }
+
+      // Step 2: create vehicle if new
+      let vId = vehicleId || null
+      if (vehicleMode === 'new') {
+        const created = await api.post('/vehicles', {
+          customer_id:         cId,
+          registration_number: newVehPlate.trim().toUpperCase(),
+          make:  newVehMake  || null,
+          model: newVehModel || null,
+          year:  newVehYear  ? Number(newVehYear) : null,
+          color: newVehColor || null,
+        })
+        vId = created.id
+        qc.invalidateQueries({ queryKey: ['vehicles'] })
+      }
+
+      // Step 3: create the service job
+      onSave({
+        customer_id:        cId,
+        vehicle_id:         vId,
+        technician_id:      technicianId      || null,
+        service_type:       serviceType,
+        mileage_in:         mileageIn         ? Number(mileageIn) : null,
+        customer_complaint: customerComplaint || null,
+        labor_description:  laborDescription  || null,
+        labor_cost:         laborCost         ? Number(laborCost) : 0,
+        notes:              notes             || null,
+      })
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' })
+      setLocalSaving(false)
+    }
   }
 
   return (
@@ -101,23 +182,86 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Customer */}
-            <div>
+          {/* ── Customer section ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <Label>Customer</Label>
+              <ModeToggle
+                value={customerMode}
+                onChange={(v) => { setCustomerMode(v); setCustomerId(''); setVehicleId('') }}
+                options={[{ value: 'existing', label: 'Existing' }, { value: 'new', label: 'New Customer' }]}
+              />
+            </div>
+
+            {customerMode === 'existing' ? (
               <Select value={customerId} onValueChange={(v) => { setCustomerId(v); setVehicleId('') }}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select customer…" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select customer…" /></SelectTrigger>
                 <SelectContent>
                   {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-md border bg-muted/30">
+                <div className="col-span-2">
+                  <Label className="text-xs">Full Name *</Label>
+                  <Input
+                    placeholder="e.g. Nimal Silva"
+                    value={newCustName} onChange={(e) => setNewCustName(e.target.value)}
+                    required className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Phone</Label>
+                  <Input
+                    placeholder="07X XXX XXXX"
+                    value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Email</Label>
+                  <Input
+                    type="email" placeholder="email@example.com"
+                    value={newCustEmail} onChange={(e) => setNewCustEmail(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Address</Label>
+                  <Input
+                    placeholder="Address"
+                    value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Vehicle section ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Vehicle</Label>
+              <ModeToggle
+                value={vehicleMode}
+                onChange={(v) => { setVehicleMode(v); setVehicleId('') }}
+                options={[{ value: 'existing', label: 'Existing' }, { value: 'new', label: 'New Vehicle' }]}
+              />
             </div>
 
-            {/* Vehicle */}
-            <div>
-              <Label>Vehicle</Label>
-              <Select value={vehicleId} onValueChange={setVehicleId} disabled={!customerId}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select vehicle…" /></SelectTrigger>
+            {vehicleMode === 'existing' ? (
+              <Select
+                value={vehicleId}
+                onValueChange={setVehicleId}
+                disabled={customerMode === 'existing' && !customerId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={
+                    customerMode === 'existing' && !customerId
+                      ? 'Select a customer first…'
+                      : 'Select vehicle…'
+                  } />
+                </SelectTrigger>
                 <SelectContent>
                   {customerVehicles.map((v) => (
                     <SelectItem key={v.id} value={v.id}>
@@ -126,9 +270,43 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-md border bg-muted/30">
+                <div className="col-span-2">
+                  <Label className="text-xs">Plate / Registration *</Label>
+                  <Input
+                    placeholder="e.g. ABC-1234"
+                    value={newVehPlate} onChange={(e) => setNewVehPlate(e.target.value)}
+                    required className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Make</Label>
+                  <Input placeholder="Toyota" value={newVehMake} onChange={(e) => setNewVehMake(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Model</Label>
+                  <Input placeholder="Corolla" value={newVehModel} onChange={(e) => setNewVehModel(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Year</Label>
+                  <Input
+                    type="number" placeholder="2020"
+                    min="1900" max={new Date().getFullYear() + 1}
+                    value={newVehYear} onChange={(e) => setNewVehYear(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Color</Label>
+                  <Input placeholder="White" value={newVehColor} onChange={(e) => setNewVehColor(e.target.value)} className="mt-1" />
+                </div>
+              </div>
+            )}
+          </div>
 
-            {/* Technician */}
+          {/* ── Technician + Mileage ── */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Assigned Technician</Label>
               <Select value={technicianId} onValueChange={setTechnicianId}>
@@ -140,8 +318,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Mileage In */}
             <div>
               <Label>Mileage In (km)</Label>
               <Input
@@ -164,7 +340,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {/* Labor Description */}
             <div>
               <Label>Labor Description</Label>
               <Textarea
@@ -174,8 +349,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
                 rows={2} className="mt-1"
               />
             </div>
-
-            {/* Internal Notes */}
             <div>
               <Label>Internal Notes</Label>
               <Textarea
@@ -187,7 +360,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             </div>
           </div>
 
-          {/* Estimated Labor Cost */}
           <div className="w-1/2">
             <Label>Estimated Labor Cost</Label>
             <Input
@@ -199,7 +371,7 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Create Job'}</Button>
+            <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Create Job'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -208,85 +380,161 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
 }
 
 // ─── Add Item Modal ───────────────────────────────────────────────────────────
-function AddItemModal({ open, onOpenChange, products, inventory, onSave, saving }) {
-  const [productId, setProductId] = useState('')
-  const [qty,       setQty]       = useState(1)
+function StockBadge({ qty, reorderLevel }) {
+  if (qty === 0)
+    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Out of stock</span>
+  if (reorderLevel && qty <= reorderLevel)
+    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">Low · {qty}</span>
+  return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">{qty} in stock</span>
+}
+
+function AddItemModal({ open, onOpenChange, inventory, onSave, saving }) {
+  const [inventoryId, setInventoryId] = useState('')
+  const [qty,         setQty]         = useState(1)
+  const [search,      setSearch]      = useState('')
 
   function handleOpen(isOpen) {
-    if (isOpen) { setProductId(''); setQty(1) }
+    if (isOpen) { setInventoryId(''); setQty(1); setSearch('') }
     onOpenChange(isOpen)
   }
 
-  const stockItem    = inventory.find((i) => i.product_id === productId)
-  const currentStock = stockItem?.qty_in_stock ?? null
+  const sorted = [...inventory].sort((a, b) => {
+    const na = a.products?.name ?? ''
+    const nb = b.products?.name ?? ''
+    if (na !== nb) return na.localeCompare(nb)
+    return (a.suppliers?.name ?? '').localeCompare(b.suppliers?.name ?? '')
+  })
+
+  const filtered = sorted.filter((item) => {
+    const q = search.toLowerCase()
+    if (!q) return true
+    return (
+      item.products?.name?.toLowerCase().includes(q) ||
+      item.suppliers?.name?.toLowerCase().includes(q)
+    )
+  })
+
+  const selected     = inventory.find((i) => i.id === inventoryId)
+  const currentStock = selected?.qty_in_stock ?? null
   const outOfStock   = currentStock !== null && currentStock === 0
   const overQty      = currentStock !== null && Number(qty) > currentStock && !outOfStock
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (!stockItem) return
+    if (!selected) return
     onSave({
-      inventory_id: stockItem.id,
-      product_id:   productId,
+      inventory_id: selected.id,
+      product_id:   selected.product_id,
       qty_used:     Number(qty),
-      unit_price:   stockItem.selling_price,
+      unit_price:   selected.selling_price,
     })
   }
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>Add Item to Job</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <Label>Product *</Label>
-            <Select value={productId} onValueChange={setProductId}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Select product…" /></SelectTrigger>
-              <SelectContent>
-                {products.filter((p) => p.is_active !== false).map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
 
-            {currentStock !== null && (
-              outOfStock ? (
-                <p className="text-xs text-destructive mt-1 font-medium">
-                  Out of stock — create a Purchase Order to restock this part first.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Stock available: <strong>{currentStock}</strong>
-                  {stockItem?.selling_price != null && (
-                    <> · Unit price: <strong>{formatCurrency(stockItem.selling_price)}</strong></>
-                  )}
-                </p>
-              )
-            )}
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search by product or supplier…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
 
-          <div>
-            <Label>Quantity *</Label>
-            <Input
-              type="number" min="1"
-              max={currentStock ?? undefined}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              required className="mt-1"
-            />
-            {overQty && (
-              <p className="text-xs text-destructive mt-1">
-                Quantity exceeds available stock ({currentStock}).
-              </p>
+          {/* Scrollable item list */}
+          <div className="max-h-60 overflow-y-auto space-y-1 rounded-md border p-1">
+            {filtered.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No items found.</p>
+            ) : filtered.map((item) => {
+              const isSelected = inventoryId === item.id
+              const isDisabled = item.qty_in_stock === 0
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => setInventoryId(item.id)}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-left transition-colors
+                    ${isSelected
+                      ? 'bg-primary/8 border border-primary/40 ring-1 ring-primary/20'
+                      : 'border border-transparent hover:bg-muted/60'}
+                    ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
+                  `}
+                >
+                  {/* Left: name + supplier */}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm leading-tight">{item.products?.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{item.suppliers?.name ?? '—'}</p>
+                  </div>
+
+                  {/* Right: price + stock + check */}
+                  <div className="flex items-center gap-3 ml-4 shrink-0">
+                    <div className="text-right">
+                      <p className="font-semibold text-sm">{formatCurrency(item.selling_price)}</p>
+                      <p className="text-xs text-muted-foreground">per unit</p>
+                    </div>
+                    <StockBadge qty={item.qty_in_stock} reorderLevel={item.reorder_level} />
+                    {isSelected
+                      ? <Check className="h-4 w-4 text-primary shrink-0" />
+                      : <div className="h-4 w-4 shrink-0" />
+                    }
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Extra details for selected item */}
+          {selected && (
+            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs grid grid-cols-2 gap-x-6 gap-y-1">
+              {selected.batch_number && (
+                <><span className="text-muted-foreground">Batch #</span><span>{selected.batch_number}</span></>
+              )}
+              {selected.expiry_date && (
+                <><span className="text-muted-foreground">Expiry</span><span>{formatDate(selected.expiry_date)}</span></>
+              )}
+              {selected.rack_no && (
+                <><span className="text-muted-foreground">Location</span>
+                <span>Rack {selected.rack_no}{selected.bin_no ? ` · Bin ${selected.bin_no}` : ''}</span></>
+              )}
+              {selected.is_genuine === false && (
+                <span className="col-span-2 text-orange-600 font-medium">⚠ Non-genuine part</span>
+              )}
+            </div>
+          )}
+
+          {/* Quantity row + live subtotal */}
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <Label>Quantity *</Label>
+              <Input
+                type="number" min="1"
+                max={currentStock ?? undefined}
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                required className="mt-1"
+              />
+              {overQty && (
+                <p className="text-xs text-destructive mt-1">Exceeds available stock ({currentStock}).</p>
+              )}
+            </div>
+            {selected && !outOfStock && Number(qty) > 0 && (
+              <div className="text-right pb-0.5 shrink-0">
+                <p className="text-xs text-muted-foreground">Subtotal</p>
+                <p className="text-base font-semibold">{formatCurrency(Number(qty) * selected.selling_price)}</p>
+              </div>
             )}
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              disabled={saving || !productId || outOfStock || overQty}
-            >
+            <Button type="submit" disabled={saving || !inventoryId || outOfStock || overQty}>
               {saving ? 'Adding…' : 'Add Item'}
             </Button>
           </DialogFooter>
@@ -504,7 +752,6 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
       <AddItemModal
         open={addItemModal}
         onOpenChange={setAddItemModal}
-        products={products}
         inventory={inventory}
         onSave={(data) => addItemMutation.mutate(data)}
         saving={addItemMutation.isPending}
