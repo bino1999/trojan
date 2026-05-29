@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Eye, CheckCircle, XCircle, ArrowLeft, ArrowRight,
-  Package, Trash2, ShoppingCart, ClipboardList, BadgeCheck,
+  Package, Trash2, ShoppingCart, ClipboardList, BadgeCheck, Printer,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -12,7 +12,7 @@ import PageHeader from '@/components/shared/PageHeader'
 import DataTable from '@/components/shared/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -28,6 +28,281 @@ function statusBadge(status) {
 
 const VAT_LABELS = { non_vat: 'Non VAT', vat_inclusive: 'VAT Inclusive', vat_exclusive: 'VAT Exclusive' }
 const PM_LABELS  = { cash: 'Cash', cheque: 'Cheque', card: 'Card', credit: 'Credit', bank_transfer: 'Bank Transfer' }
+
+// ─── Receipt helpers ─────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function buildReceiptHtml({ supplier, header, items, receiptNo, completedAt }) {
+  const fmt = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmtDate = (d) => {
+    try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) }
+    catch { return d }
+  }
+
+  const subtotal = items.reduce((s, it) => s + Number(it.qty) * Number(it.company_price), 0)
+  const totalDiscount = items.reduce((s, it) => s + Number(it.discount_amount || 0), 0)
+  const grandTotal = subtotal - totalDiscount
+
+  const VAT_LABELS = { non_vat: 'Non VAT', vat_inclusive: 'VAT Inclusive', vat_exclusive: 'VAT Exclusive' }
+  const PM_LABELS  = { cash: 'Cash', cheque: 'Cheque', card: 'Card', credit: 'Credit', bank_transfer: 'Bank Transfer' }
+
+  const itemRows = items.map((it, i) => {
+    const total = Number(it.qty) * Number(it.company_price) - Number(it.discount_amount || 0)
+    const discount = Number(it.discount_amount) > 0 ? `- ${fmt(it.discount_amount)}` : '&mdash;'
+    return `
+      <tr>
+        <td style="padding:8px 10px;color:#6b7280;border-bottom:1px solid #f3f4f6">${i + 1}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6">
+          <strong>${esc(it.product_name)}</strong>
+          ${it.brand ? `<br><small style="color:#9ca3af">${esc(it.brand)}</small>` : ''}
+        </td>
+        <td style="padding:8px 10px;text-align:center;border-bottom:1px solid #f3f4f6">${esc(it.qty)}</td>
+        <td style="padding:8px 10px;text-align:center;color:#6b7280;border-bottom:1px solid #f3f4f6">${esc(it.unit) || '&mdash;'}</td>
+        <td style="padding:8px 10px;text-align:right;border-bottom:1px solid #f3f4f6">${fmt(it.company_price)}</td>
+        <td style="padding:8px 10px;text-align:right;color:#059669;border-bottom:1px solid #f3f4f6">${discount}</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #f3f4f6">${fmt(total)}</td>
+      </tr>`
+  }).join('')
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Purchase Receipt ${esc(receiptNo)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #1f2937; padding: 32px; max-width: 780px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; }
+  @media print { body { padding: 16px; } }
+</style>
+</head><body>
+  <div style="text-align:center;border-bottom:2px solid #1f2937;padding-bottom:14px;margin-bottom:20px">
+    <h1 style="font-size:20px;font-weight:800;letter-spacing:0.05em">PURCHASE RECEIPT</h1>
+    <p style="font-size:11px;color:#6b7280;margin-top:3px">Goods Received Note</p>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;margin-bottom:18px">
+    <div>
+      <p style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:3px">Supplier</p>
+      <p style="font-size:15px;font-weight:700">${esc(supplier?.name)}</p>
+      ${supplier?.contact_person ? `<p style="color:#6b7280;margin-top:2px">${esc(supplier.contact_person)}</p>` : ''}
+      ${supplier?.phone ? `<p style="color:#6b7280">${esc(supplier.phone)}</p>` : ''}
+      ${supplier?.email ? `<p style="color:#6b7280">${esc(supplier.email)}</p>` : ''}
+      ${supplier?.address ? `<p style="color:#9ca3af;font-size:11px;margin-top:2px">${esc(supplier.address)}</p>` : ''}
+    </div>
+    <div style="text-align:right">
+      <p style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:3px">Receipt Details</p>
+      <p style="font-family:monospace;font-weight:700;font-size:13px">${esc(receiptNo)}</p>
+      <p style="color:#6b7280;margin-top:2px">${fmtDate(completedAt)}</p>
+      ${header.bill_no ? `<p style="color:#6b7280;margin-top:2px">Bill No: <span style="font-family:monospace;font-weight:600">${esc(header.bill_no)}</span></p>` : ''}
+      <p style="color:#6b7280">${fmtDate(header.bill_date)}</p>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:24px;background:#f9fafb;border-radius:6px;padding:10px 14px;margin-bottom:18px">
+    <div>
+      <p style="font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:700">Payment Method</p>
+      <p style="font-weight:600;margin-top:2px">${esc(PM_LABELS[header.payment_method] ?? header.payment_method)}</p>
+    </div>
+    <div style="border-left:1px solid #e5e7eb;padding-left:24px">
+      <p style="font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:700">VAT Type</p>
+      <p style="font-weight:600;margin-top:2px">${esc(VAT_LABELS[header.vat_type] ?? header.vat_type)}</p>
+    </div>
+  </div>
+
+  <table style="margin-bottom:16px">
+    <thead>
+      <tr style="background:#1f2937;color:#fff">
+        <th style="padding:9px 10px;text-align:left;font-size:11px">#</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px">Product</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px">Qty</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px">Unit</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px">Unit Price</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px">Discount</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px">Total</th>
+      </tr>
+    </thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+
+  <div style="display:flex;justify-content:flex-end;margin-bottom:18px">
+    <div style="width:220px">
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#6b7280">
+        <span>Subtotal</span><span>${fmt(subtotal)}</span>
+      </div>
+      ${totalDiscount > 0 ? `
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#059669">
+        <span>Total Discount</span><span>- ${fmt(totalDiscount)}</span>
+      </div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:7px 0 3px;border-top:2px solid #1f2937;font-size:15px;font-weight:700;margin-top:3px">
+        <span>Grand Total</span><span style="color:#1d4ed8">${fmt(grandTotal)}</span>
+      </div>
+    </div>
+  </div>
+
+  ${header.description ? `
+  <div style="border-top:1px solid #e5e7eb;padding-top:10px;margin-bottom:14px">
+    <p style="font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:700;margin-bottom:3px">Notes</p>
+    <p style="color:#4b5563">${esc(header.description)}</p>
+  </div>` : ''}
+
+  <div style="border-top:1px solid #e5e7eb;padding-top:10px;text-align:center">
+    <p style="font-size:10px;color:#9ca3af">This is a computer-generated receipt &mdash; no signature required</p>
+  </div>
+</body></html>`
+}
+
+// ─── Purchase Receipt Modal ──────────────────────────────────────────────────
+
+function PurchaseReceiptModal({ data, suppliers, open, onClose }) {
+  if (!data) return null
+
+  const { header, items, receiptNo, completedAt } = data
+  const supplier = suppliers.find((s) => s.supplier_id === header.supplier_id)
+
+  const subtotal = items.reduce((s, it) => s + Number(it.qty) * Number(it.company_price), 0)
+  const totalDiscount = items.reduce((s, it) => s + Number(it.discount_amount || 0), 0)
+  const grandTotal = subtotal - totalDiscount
+
+  function handlePrint() {
+    const html = buildReceiptHtml({ supplier, header, items, receiptNo, completedAt })
+    const win = window.open('', '_blank', 'width=860,height=700')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print(); win.close() }, 400)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Printer className="h-5 w-5" />
+            Purchase Receipt
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Receipt preview */}
+        <div className="border rounded-xl p-6 space-y-4 bg-white text-gray-900 text-sm">
+          {/* Title */}
+          <div className="text-center border-b pb-4">
+            <h2 className="text-lg font-extrabold tracking-wide">PURCHASE RECEIPT</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Goods Received Note</p>
+          </div>
+
+          {/* Supplier + receipt info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Supplier</p>
+              <p className="font-bold text-base text-gray-900">{supplier?.name ?? '—'}</p>
+              {supplier?.contact_person && <p className="text-gray-500 text-xs mt-0.5">{supplier.contact_person}</p>}
+              {supplier?.phone        && <p className="text-gray-500 text-xs">{supplier.phone}</p>}
+              {supplier?.email        && <p className="text-gray-500 text-xs">{supplier.email}</p>}
+              {supplier?.address      && <p className="text-gray-400 text-xs mt-0.5">{supplier.address}</p>}
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Receipt Details</p>
+              <p className="font-mono font-bold">{receiptNo}</p>
+              <p className="text-gray-500 text-xs mt-0.5">{new Date(completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              {header.bill_no && (
+                <p className="text-gray-500 text-xs">Bill No: <span className="font-mono font-semibold">{header.bill_no}</span></p>
+              )}
+              <p className="text-gray-500 text-xs">{new Date(header.bill_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            </div>
+          </div>
+
+          {/* Payment info */}
+          <div className="flex gap-6 bg-gray-50 rounded-lg px-4 py-3">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold">Payment Method</p>
+              <p className="font-semibold mt-0.5">{PM_LABELS[header.payment_method] ?? header.payment_method}</p>
+            </div>
+            <div className="border-l pl-6">
+              <p className="text-[10px] text-gray-400 uppercase font-bold">VAT Type</p>
+              <p className="font-semibold mt-0.5">{VAT_LABELS[header.vat_type] ?? header.vat_type}</p>
+            </div>
+          </div>
+
+          {/* Items table */}
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-800 text-white">
+                <th className="px-3 py-2 text-left font-semibold">#</th>
+                <th className="px-3 py-2 text-left font-semibold">Product</th>
+                <th className="px-3 py-2 text-center font-semibold">Qty</th>
+                <th className="px-3 py-2 text-center font-semibold">Unit</th>
+                <th className="px-3 py-2 text-right font-semibold">Unit Price</th>
+                <th className="px-3 py-2 text-right font-semibold">Discount</th>
+                <th className="px-3 py-2 text-right font-semibold">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, i) => {
+                const total = Number(it.qty) * Number(it.company_price) - Number(it.discount_amount || 0)
+                return (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-3 py-2">
+                      <p className="font-semibold">{it.product_name}</p>
+                      {it.brand && <p className="text-gray-400">{it.brand}</p>}
+                    </td>
+                    <td className="px-3 py-2 text-center">{it.qty}</td>
+                    <td className="px-3 py-2 text-center text-gray-400">{it.unit || '—'}</td>
+                    <td className="px-3 py-2 text-right">{formatCurrency(it.company_price)}</td>
+                    <td className="px-3 py-2 text-right text-green-600">
+                      {Number(it.discount_amount) > 0 ? `- ${formatCurrency(it.discount_amount)}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right font-bold">{formatCurrency(total)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Totals */}
+          <div className="flex justify-end">
+            <div className="w-52 space-y-1 text-xs">
+              <div className="flex justify-between text-gray-500">
+                <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
+              </div>
+              {totalDiscount > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Total Discount</span><span>- {formatCurrency(totalDiscount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-sm border-t border-gray-800 pt-1.5 mt-1">
+                <span>Grand Total</span>
+                <span className="text-blue-700">{formatCurrency(grandTotal)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {header.description && (
+            <div className="border-t pt-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Notes</p>
+              <p className="text-gray-600">{header.description}</p>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="border-t pt-3 text-center">
+            <p className="text-[10px] text-gray-400">This is a computer-generated receipt — no signature required</p>
+          </div>
+        </div>
+
+        <div className="flex justify-between pt-1">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button onClick={handlePrint} className="gap-2">
+            <Printer className="h-4 w-4" />
+            Print Receipt
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 // ─── Step indicator ─────────────────────────────────────────────────────────
 
@@ -657,6 +932,7 @@ export default function Purchases() {
   const [poItems, setPoItems]     = useState([])
   const [detailPO, setDetailPO]   = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [receiptData, setReceiptData] = useState(null)
 
   const { data: purchases = [], isLoading } = useQuery({
     queryKey: ['purchases'],
@@ -678,10 +954,19 @@ export default function Purchases() {
 
   const completeMutation = useMutation({
     mutationFn: (data) => api.post('/purchases/complete', data),
-    onSuccess: () => {
+    onSuccess: (po) => {
       qc.invalidateQueries({ queryKey: ['purchases'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      resetCreate()
+      const shortId = po?.purchase_order_id?.slice(0, 8).toUpperCase() ?? '—'
+      const receipt = {
+        header:      { ...header },
+        items:       [...poItems],
+        receiptNo:   po?.invoice_number ?? `PO-${shortId}`,
+        completedAt: new Date().toISOString(),
+      }
+      // Return to list view, then open receipt modal over it
+      setView('list'); setStep(1); setHeader(EMPTY_HEADER); setPoItems([])
+      setReceiptData(receipt)
       toast({ title: 'Purchase order completed', description: 'Items added to inventory.', variant: 'success' })
     },
     onError: (err) => toast({ title: 'Error', description: err?.error ?? err?.message ?? 'Failed', variant: 'destructive' }),
@@ -708,7 +993,7 @@ export default function Purchases() {
     onError: (err) => toast({ title: 'Error', description: err?.error ?? err?.message ?? 'Failed', variant: 'destructive' }),
   })
 
-  function resetCreate() { setView('list'); setStep(1); setHeader(EMPTY_HEADER); setPoItems([]) }
+  function resetCreate() { setView('list'); setStep(1); setHeader(EMPTY_HEADER); setPoItems([]); setReceiptData(null) }
 
   function startCreate() { resetCreate(); setView('create') }
 
@@ -882,6 +1167,13 @@ export default function Purchases() {
         onCancel={() => cancelMutation.mutate(modalPO?.purchase_order_id)}
         receiving={receiveMutation.isPending}
         cancelling={cancelMutation.isPending}
+      />
+
+      <PurchaseReceiptModal
+        data={receiptData}
+        suppliers={suppliers}
+        open={!!receiptData}
+        onClose={resetCreate}
       />
     </div>
   )

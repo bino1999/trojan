@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt, Search, Check } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt, Search, Check, CreditCard, Printer, DollarSign, Banknote, Edit2 } from 'lucide-react'
 import api from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -18,14 +18,22 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 
 function statusBadge(status) {
   const map = {
-    estimate:         'secondary',
-    open:             'info',
-    in_progress:      'warning',
+    estimate:          'secondary',
+    open:              'info',
+    in_progress:       'warning',
     waiting_for_parts: 'destructive',
-    completed:        'success',
-    invoiced:         'default',
+    completed:         'success',
+    invoiced:          'default',
+    paid:              'success',
   }
   return <Badge variant={map[status] ?? 'secondary'}>{status?.replace(/_/g, ' ')}</Badge>
+}
+
+const PAYMENT_METHOD_LABELS = {
+  cash:          'Cash',
+  card:          'Card',
+  bank_transfer: 'Bank Transfer',
+  cheque:        'Cheque',
 }
 
 // ─── Inline toggle used for Existing / New customer and vehicle ───────────────
@@ -544,12 +552,250 @@ function AddItemModal({ open, onOpenChange, inventory, onSave, saving }) {
   )
 }
 
+// ─── Payment Modal ────────────────────────────────────────────────────────────
+function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTotal, onConfirm, saving }) {
+  const [method, setMethod]       = useState(job?.payment_method ?? '')
+  const [reference, setReference] = useState(job?.payment_reference ?? '')
+  const [tendered, setTendered]   = useState(job?.amount_tendered ?? '')
+
+  // Reset fields when modal opens (pre-fill for edit mode)
+  const handleOpen = (v) => {
+    if (v) {
+      setMethod(job?.payment_method ?? '')
+      setReference(job?.payment_reference ?? '')
+      setTendered(job?.amount_tendered ?? '')
+    }
+    onOpenChange(v)
+  }
+
+  const change        = method === 'cash' ? (Number(tendered) || 0) - grandTotal : 0
+  const cashInsufficient = method === 'cash' && (Number(tendered) || 0) < grandTotal
+  const canConfirm    = !!method && !cashInsufficient
+
+  const handleConfirm = () => {
+    onConfirm({
+      payment_method:    method,
+      payment_reference: reference || null,
+      amount_tendered:   method === 'cash' ? Number(tendered) : null,
+    })
+  }
+
+  const methodButtons = [
+    { value: 'cash',          label: 'Cash',          Icon: Banknote   },
+    { value: 'card',          label: 'Card',          Icon: CreditCard },
+    { value: 'bank_transfer', label: 'Bank Transfer', Icon: DollarSign },
+    { value: 'cheque',        label: 'Cheque',        Icon: Receipt    },
+  ]
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Collect Payment — {job?.job_number}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          {/* Invoice summary */}
+          <div className="rounded-md border divide-y text-sm">
+            <div className="flex justify-between px-3 py-2 text-muted-foreground">
+              <span>Parts subtotal</span><span>{formatCurrency(partsTotal)}</span>
+            </div>
+            <div className="flex justify-between px-3 py-2 text-muted-foreground">
+              <span>Labor</span><span>{formatCurrency(laborTotal)}</span>
+            </div>
+            <div className="flex justify-between px-3 py-2 font-semibold">
+              <span>Total Due</span><span>{formatCurrency(grandTotal)}</span>
+            </div>
+          </div>
+
+          {/* Payment method selector */}
+          <div className="space-y-1.5">
+            <Label>Payment Method</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {methodButtons.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setMethod(value)}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-md border text-sm transition-colors ${
+                    method === value
+                      ? 'border-primary bg-primary/10 text-primary font-medium'
+                      : 'border-border hover:bg-muted'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Method-specific fields */}
+          {method === 'cash' && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="tendered">Amount Tendered</Label>
+                <Input
+                  id="tendered"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0.00"
+                  value={tendered}
+                  onChange={(e) => setTendered(e.target.value)}
+                />
+              </div>
+              {Number(tendered) > 0 && (
+                <div className={`flex justify-between px-3 py-2 rounded-md font-semibold ${
+                  change >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  <span>{change >= 0 ? 'Change Due' : 'Amount Short'}</span>
+                  <span>{formatCurrency(Math.abs(change))}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {method === 'card' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="ref">Card Reference / Last 4 Digits <span className="text-muted-foreground">(optional)</span></Label>
+              <Input id="ref" placeholder="e.g. 4242" value={reference} onChange={(e) => setReference(e.target.value)} />
+            </div>
+          )}
+
+          {method === 'bank_transfer' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="ref">Bank Reference No. <span className="text-muted-foreground">(optional)</span></Label>
+              <Input id="ref" placeholder="e.g. TXN-123456" value={reference} onChange={(e) => setReference(e.target.value)} />
+            </div>
+          )}
+
+          {method === 'cheque' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="ref">Cheque Number <span className="text-muted-foreground">(optional)</span></Label>
+              <Input id="ref" placeholder="e.g. 001234" value={reference} onChange={(e) => setReference(e.target.value)} />
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirm} disabled={!canConfirm || saving}>
+            {saving ? 'Processing…' : 'Confirm Payment'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Receipt Modal ─────────────────────────────────────────────────────────────
+function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, grandTotal }) {
+  const j = job
+  if (!j) return null
+
+  const handlePrint = () => window.print()
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Receipt — {j.invoice_number ?? j.job_number}</DialogTitle>
+        </DialogHeader>
+
+        {/* Printable receipt */}
+        <div id="receipt-printable" className="space-y-3 text-sm font-mono">
+          <div className="text-center border-b pb-3">
+            <p className="font-bold text-base">VEHICLE SERVICE CENTER</p>
+            <p className="text-xs text-muted-foreground">Invoice No: {j.invoice_number ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">Date: {formatDate(j.payment_date ?? j.created_at)}</p>
+          </div>
+
+          <div className="space-y-0.5 text-xs">
+            <div className="flex gap-2"><span className="text-muted-foreground w-20">Customer:</span><span className="font-medium">{j.customers?.name ?? '—'}</span></div>
+            <div className="flex gap-2"><span className="text-muted-foreground w-20">Vehicle:</span><span className="font-medium">{j.vehicles?.registration_number ?? '—'}</span></div>
+            <div className="flex gap-2"><span className="text-muted-foreground w-20">Job No:</span><span className="font-medium">{j.job_number}</span></div>
+          </div>
+
+          <div className="border-t pt-2">
+            <p className="font-semibold mb-1 text-xs uppercase tracking-wide text-muted-foreground">Parts</p>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-0.5 font-medium">Item</th>
+                  <th className="text-right py-0.5 font-medium">Qty</th>
+                  <th className="text-right py-0.5 font-medium">Price</th>
+                  <th className="text-right py-0.5 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr><td colSpan={4} className="py-1 text-muted-foreground">—</td></tr>
+                ) : items.map((it) => (
+                  <tr key={it.id} className="border-b border-dashed">
+                    <td className="py-0.5">{it.products?.name ?? '—'}</td>
+                    <td className="py-0.5 text-right">{it.qty_used}</td>
+                    <td className="py-0.5 text-right">{formatCurrency(it.unit_price)}</td>
+                    <td className="py-0.5 text-right">{formatCurrency(it.qty_used * it.unit_price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t divide-y text-xs">
+            <div className="flex justify-between py-1 text-muted-foreground">
+              <span>Parts subtotal</span><span>{formatCurrency(partsTotal)}</span>
+            </div>
+            {laborTotal > 0 && (
+              <div className="flex justify-between py-1 text-muted-foreground">
+                <div>
+                  <span>Labor</span>
+                  {j.labor_description && <p className="italic">{j.labor_description}</p>}
+                </div>
+                <span>{formatCurrency(laborTotal)}</span>
+              </div>
+            )}
+            <div className="flex justify-between py-1 font-bold">
+              <span>TOTAL</span><span>{formatCurrency(grandTotal)}</span>
+            </div>
+          </div>
+
+          <div className="border-t pt-2 text-xs space-y-0.5">
+            <div className="flex gap-2"><span className="text-muted-foreground w-24">Payment:</span><span className="capitalize">{PAYMENT_METHOD_LABELS[j.payment_method] ?? j.payment_method ?? '—'}</span></div>
+            {j.payment_method === 'cash' && j.amount_tendered != null && (
+              <>
+                <div className="flex gap-2"><span className="text-muted-foreground w-24">Tendered:</span><span>{formatCurrency(j.amount_tendered)}</span></div>
+                <div className="flex gap-2"><span className="text-muted-foreground w-24">Change:</span><span>{formatCurrency(Math.max(0, Number(j.amount_tendered) - grandTotal))}</span></div>
+              </>
+            )}
+            {j.payment_reference && (
+              <div className="flex gap-2"><span className="text-muted-foreground w-24">Reference:</span><span>{j.payment_reference}</span></div>
+            )}
+          </div>
+
+          <div className="border-t pt-3 text-center text-xs text-muted-foreground">
+            <p>Thank you for your business!</p>
+            <p>Please retain this receipt for your records.</p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={handlePrint} className="gap-1.5">
+            <Printer className="h-4 w-4" /> Print Receipt
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Job Detail Modal ─────────────────────────────────────────────────────────
 function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
   const qc = useQueryClient()
   const { role } = useAuthStore()
-  const [addItemModal, setAddItemModal] = useState(false)
-  const [removeTarget, setRemoveTarget] = useState(null)
+  const [addItemModal,    setAddItemModal]    = useState(false)
+  const [removeTarget,    setRemoveTarget]    = useState(null)
+  const [paymentModal,    setPaymentModal]    = useState(false)
+  const [receiptModal,    setReceiptModal]    = useState(false)
 
   const { data: detail } = useQuery({
     queryKey: ['service-job', job?.id],
@@ -589,6 +835,18 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
     onError: (err) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
   })
 
+  const paymentMutation = useMutation({
+    mutationFn: (data) => api.post(`/service-jobs/${job.id}/payment`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['service-jobs'] })
+      qc.invalidateQueries({ queryKey: ['service-job', job.id] })
+      setPaymentModal(false)
+      setReceiptModal(true)
+      toast({ title: 'Payment recorded', variant: 'success' })
+    },
+    onError: (err) => toast({ title: 'Payment error', description: err.message, variant: 'destructive' }),
+  })
+
   const j          = detail ?? job
   const items      = j?.service_job_items ?? j?.items ?? []
   const partsTotal = items.reduce((s, it) => s + (Number(it.qty_used) || 0) * (Number(it.unit_price) || 0), 0)
@@ -615,7 +873,7 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
   if (j?.status === 'waiting_for_parts' && canAct)
     statusActions.push({ label: 'Resume Job',         nextStatus: 'in_progress',      Icon: Play,        variant: 'default'  })
   if (j?.status === 'completed' && canManage)
-    statusActions.push({ label: 'Mark Invoiced',      nextStatus: 'invoiced',         Icon: Receipt,     variant: 'default'  })
+    statusActions.push({ label: 'Mark Invoiced', nextStatus: 'invoiced', Icon: Receipt, variant: 'default' })
 
   if (!job) return null
 
@@ -639,6 +897,9 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
               )}
               {j?.mileage_in != null && (
                 <div><span className="text-muted-foreground">Mileage In:</span> <span className="font-medium">{Number(j.mileage_in).toLocaleString()} km</span></div>
+              )}
+              {j?.invoice_number && (
+                <div><span className="text-muted-foreground">Invoice No:</span> <span className="font-medium">{j.invoice_number}</span></div>
               )}
             </div>
 
@@ -720,6 +981,16 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
                 <span>Total</span>
                 <span>{formatCurrency(grandTotal)}</span>
               </div>
+              {j?.status === 'paid' && j?.payment_method && (
+                <div className="flex justify-between px-3 py-2 text-muted-foreground bg-green-50/50">
+                  <div>
+                    <span className="text-green-700 font-medium">Paid</span>
+                    <p className="text-xs">{PAYMENT_METHOD_LABELS[j.payment_method]}{j.payment_reference ? ` — ${j.payment_reference}` : ''}</p>
+                    {j.payment_date && <p className="text-xs">{formatDate(j.payment_date)}</p>}
+                  </div>
+                  <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
+                </div>
+              )}
             </div>
 
             {/* Internal notes */}
@@ -728,7 +999,7 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
             )}
 
             {/* Status action buttons */}
-            {statusActions.length > 0 && (
+            {(statusActions.length > 0 || j?.status === 'invoiced' || j?.status === 'paid') && (
               <div className="flex gap-2 flex-wrap pt-1">
                 {statusActions.map(({ label, nextStatus, Icon, variant }) => (
                   <Button
@@ -743,6 +1014,23 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
                     {label}
                   </Button>
                 ))}
+                {j?.status === 'invoiced' && canManage && (
+                  <Button size="sm" className="gap-1.5" onClick={() => setPaymentModal(true)}>
+                    <DollarSign className="h-3.5 w-3.5" /> Collect Payment
+                  </Button>
+                )}
+                {j?.status === 'paid' && (
+                  <>
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setReceiptModal(true)}>
+                      <Printer className="h-3.5 w-3.5" /> View Receipt
+                    </Button>
+                    {canManage && (
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPaymentModal(true)}>
+                        <Edit2 className="h-3.5 w-3.5" /> Edit Payment
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -765,6 +1053,27 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
         onConfirm={() => removeItemMutation.mutate(removeTarget.id)}
         loading={removeItemMutation.isPending}
         confirmLabel="Remove"
+      />
+
+      <PaymentModal
+        open={paymentModal}
+        onOpenChange={setPaymentModal}
+        job={j}
+        partsTotal={partsTotal}
+        laborTotal={laborTotal}
+        grandTotal={grandTotal}
+        onConfirm={(data) => paymentMutation.mutate(data)}
+        saving={paymentMutation.isPending}
+      />
+
+      <ReceiptModal
+        open={receiptModal}
+        onOpenChange={setReceiptModal}
+        job={j}
+        items={items}
+        partsTotal={partsTotal}
+        laborTotal={laborTotal}
+        grandTotal={grandTotal}
       />
     </>
   )
@@ -849,6 +1158,7 @@ export default function ServiceJobs() {
                 <SelectItem value="waiting_for_parts">Waiting for Parts</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="invoiced">Invoiced</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
               </SelectContent>
             </Select>
           }

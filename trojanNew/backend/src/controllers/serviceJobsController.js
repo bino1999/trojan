@@ -105,7 +105,8 @@ exports.update = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-const VALID_STATUSES = ['estimate', 'open', 'in_progress', 'waiting_for_parts', 'completed', 'invoiced']
+const VALID_STATUSES = ['estimate', 'open', 'in_progress', 'waiting_for_parts', 'completed', 'invoiced', 'paid']
+const VALID_PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'cheque']
 
 exports.setStatus = async (req, res, next) => {
   try {
@@ -116,6 +117,28 @@ exports.setStatus = async (req, res, next) => {
     const { data, error } = await supabase
       .from('service_jobs')
       .update({ status })
+      .eq('job_id', req.params.id)
+      .select().single()
+    if (error) throw error
+    res.json(addId(data))
+  } catch (err) { next(err) }
+}
+
+exports.recordPayment = async (req, res, next) => {
+  try {
+    const { payment_method, payment_reference, amount_tendered } = req.body
+    if (!VALID_PAYMENT_METHODS.includes(payment_method)) {
+      return res.status(400).json({ error: `Invalid payment_method. Must be one of: ${VALID_PAYMENT_METHODS.join(', ')}` })
+    }
+    const { data, error } = await supabase
+      .from('service_jobs')
+      .update({
+        payment_method,
+        payment_reference: payment_reference || null,
+        amount_tendered:   payment_method === 'cash' ? (amount_tendered ?? null) : null,
+        payment_date:      new Date().toISOString(),
+        status:            'paid',
+      })
       .eq('job_id', req.params.id)
       .select().single()
     if (error) throw error
