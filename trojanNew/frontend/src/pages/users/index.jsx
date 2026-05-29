@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil } from 'lucide-react'
 import api from '@/lib/api'
@@ -95,14 +95,25 @@ function EditRoleModal({ open, onOpenChange, user, onSave, saving }) {
 
 export default function Users() {
   const qc = useQueryClient()
-  const [inviteModal, setInviteModal] = useState(false)
-  const [editTarget, setEditTarget] = useState(null)
-  const [deactivateTarget, setDeactivateTarget] = useState(null)
+  const [inviteModal,       setInviteModal]       = useState(false)
+  const [editTarget,        setEditTarget]        = useState(null)
+  const [deactivateTarget,  setDeactivateTarget]  = useState(null)
+  const [roleFilter,        setRoleFilter]        = useState('all')
+  const [statusFilter,      setStatusFilter]      = useState('all')
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.get('/users'),
   })
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false
+      if (statusFilter === 'active'   && u.is_active === false) return false
+      if (statusFilter === 'inactive' && u.is_active !== false) return false
+      return true
+    })
+  }, [users, roleFilter, statusFilter])
 
   const inviteMutation = useMutation({
     mutationFn: (data) => api.post('/users/invite', data),
@@ -183,11 +194,41 @@ export default function Users() {
       ) : (
         <DataTable
           columns={columns}
-          data={users}
+          data={filteredUsers}
           searchPlaceholder="Search by email…"
           searchKeys={['email']}
-          filterSlot={null}
           emptyMessage="No users found."
+          filterSlot={
+            <div className="flex flex-wrap gap-2 items-center">
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="all">All Roles</option>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              {(roleFilter !== 'all' || statusFilter !== 'all') && (
+                <button
+                  onClick={() => { setRoleFilter('all'); setStatusFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          }
         />
       )}
 

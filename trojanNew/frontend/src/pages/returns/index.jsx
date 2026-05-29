@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Eye } from 'lucide-react'
 import api from '@/lib/api'
@@ -172,11 +172,28 @@ function ReturnDetailModal({ ret, open, onOpenChange }) {
 export default function Returns() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
-  const [newModal, setNewModal] = useState(false)
-  const [detailReturn, setDetailReturn] = useState(null)
+  const [newModal,      setNewModal]      = useState(false)
+  const [detailReturn,  setDetailReturn]  = useState(null)
+  const [dateFrom,      setDateFrom]      = useState('')
+  const [dateTo,        setDateTo]        = useState('')
+  const [reasonFilter,  setReasonFilter]  = useState('all')
 
   const { data: returns = [], isLoading } = useQuery({ queryKey: ['returns'], queryFn: () => api.get('/returns') })
   const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => api.get('/sales') })
+
+  const reasonOptions = useMemo(() => {
+    return [...new Set(returns.map((r) => r.reason).filter(Boolean))].sort()
+  }, [returns])
+
+  const filteredReturns = useMemo(() => {
+    return returns.filter((r) => {
+      const d = (r.return_date ?? r.created_at ?? '').slice(0, 10)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo   && d > dateTo)   return false
+      if (reasonFilter !== 'all' && r.reason !== reasonFilter) return false
+      return true
+    })
+  }, [returns, dateFrom, dateTo, reasonFilter])
 
   const createMutation = useMutation({
     mutationFn: (data) => api.post('/returns', data),
@@ -217,7 +234,50 @@ export default function Returns() {
       {isLoading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
       ) : (
-        <DataTable columns={columns} data={returns} searchPlaceholder="Search by return number…" searchKeys={['return_number', 'reason']} emptyMessage="No returns yet." />
+        <DataTable
+          columns={columns}
+          data={filteredReturns}
+          searchPlaceholder="Search by return number…"
+          searchKeys={['return_number', 'reason']}
+          emptyMessage="No returns yet."
+          filterSlot={
+            <div className="flex flex-wrap gap-2 items-center">
+              <select
+                value={reasonFilter}
+                onChange={(e) => setReasonFilter(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="all">All Reasons</option>
+                {reasonOptions.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="From date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="To date"
+              />
+              {(dateFrom || dateTo || reasonFilter !== 'all') && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); setReasonFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          }
+        />
       )}
       <NewReturnModal open={newModal} onOpenChange={setNewModal} sales={sales} onSave={(d) => createMutation.mutate(d)} saving={createMutation.isPending} />
       <ReturnDetailModal ret={detailReturn} open={!!detailReturn} onOpenChange={(open) => !open && setDetailReturn(null)} />

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import api from '@/lib/api'
@@ -97,7 +97,10 @@ function NewAdjustmentModal({ open, onOpenChange, products, onSave, saving }) {
 export default function Adjustments() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
-  const [modal, setModal] = useState(false)
+  const [modal,        setModal]        = useState(false)
+  const [dateFrom,     setDateFrom]     = useState('')
+  const [dateTo,       setDateTo]       = useState('')
+  const [reasonFilter, setReasonFilter] = useState('all')
 
   const { data: adjustments = [], isLoading } = useQuery({
     queryKey: ['adjustments'],
@@ -117,6 +120,16 @@ export default function Adjustments() {
   })
 
   const canCreate = ['admin', 'manager', 'warehouse'].includes(role)
+
+  const filteredAdjustments = useMemo(() => {
+    return adjustments.filter((a) => {
+      const d = (a.date_adjusted ?? a.created_at ?? '').slice(0, 10)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo   && d > dateTo)   return false
+      if (reasonFilter !== 'all' && a.reason !== reasonFilter) return false
+      return true
+    })
+  }, [adjustments, dateFrom, dateTo, reasonFilter])
 
   const columns = [
     { key: 'product', label: 'Product', render: (r) => <span className="font-medium">{r.products?.name ?? r.product_id}</span> },
@@ -153,10 +166,47 @@ export default function Adjustments() {
       ) : (
         <DataTable
           columns={columns}
-          data={adjustments}
-          searchPlaceholder="Search by reason…"
+          data={filteredAdjustments}
+          searchPlaceholder="Search by reason or notes…"
           searchKeys={['reason', 'notes']}
           emptyMessage="No adjustments yet."
+          filterSlot={
+            <div className="flex flex-wrap gap-2 items-center">
+              <select
+                value={reasonFilter}
+                onChange={(e) => setReasonFilter(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="all">All Reasons</option>
+                {REASONS.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="From date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="To date"
+              />
+              {(dateFrom || dateTo || reasonFilter !== 'all') && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); setReasonFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          }
         />
       )}
       <NewAdjustmentModal

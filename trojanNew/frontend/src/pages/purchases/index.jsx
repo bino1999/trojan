@@ -930,9 +930,12 @@ export default function Purchases() {
   const [step, setStep]           = useState(1)
   const [header, setHeader]       = useState(EMPTY_HEADER)
   const [poItems, setPoItems]     = useState([])
-  const [detailPO, setDetailPO]   = useState(null)
+  const [detailPO, setDetailPO]         = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [receiptData, setReceiptData] = useState(null)
+  const [supplierFilter, setSupplierFilter] = useState('all')
+  const [dateFrom, setDateFrom]         = useState('')
+  const [dateTo,   setDateTo]           = useState('')
+  const [receiptData, setReceiptData]   = useState(null)
 
   const { data: purchases = [], isLoading } = useQuery({
     queryKey: ['purchases'],
@@ -1042,7 +1045,22 @@ export default function Purchases() {
   }
 
   const canCreate = ['admin', 'manager', 'warehouse'].includes(role)
-  const filtered  = statusFilter === 'all' ? purchases : purchases.filter((p) => p.status === statusFilter)
+
+  const filtered = useMemo(() => {
+    return purchases.filter((p) => {
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false
+      if (supplierFilter !== 'all' && p.suppliers?.name !== supplierFilter) return false
+      const d = (p.order_date ?? p.created_at ?? '').slice(0, 10)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo   && d > dateTo)   return false
+      return true
+    })
+  }, [purchases, statusFilter, supplierFilter, dateFrom, dateTo])
+
+  const supplierNames = useMemo(() => {
+    const names = [...new Set(purchases.map((p) => p.suppliers?.name).filter(Boolean))].sort()
+    return names
+  }, [purchases])
   const modalPO   = poDetail ?? detailPO
 
   const columns = [
@@ -1145,15 +1163,49 @@ export default function Purchases() {
           searchPlaceholder="Search by bill / invoice number…"
           searchKeys={['invoice_number']}
           filterSlot={
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="received">Received</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap gap-2 items-center">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="received">Received</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="All Suppliers" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Suppliers</SelectItem>
+                  {supplierNames.map((name) => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="From date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="To date"
+              />
+              {(dateFrom || dateTo || statusFilter !== 'all' || supplierFilter !== 'all') && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSupplierFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           }
           emptyMessage="No purchase orders found."
         />

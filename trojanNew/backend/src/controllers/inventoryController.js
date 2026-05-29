@@ -2,6 +2,51 @@ const supabase = require('../config/supabase')
 
 exports.list = async (req, res, next) => {
   try {
+    const { search, category, low_stock, limit, offset } = req.query
+
+    if (search !== undefined || category !== undefined || limit !== undefined) {
+      // Picker / paginated mode — use search_inventory RPC (fast, filtered)
+      const { data, error } = await supabase.rpc('search_inventory', {
+        p_search:    search    || '',
+        p_category:  category  || '',
+        p_low_stock: low_stock === 'true',
+        p_limit:     Math.min(Number(limit) || 30, 100),
+        p_offset:    Number(offset) || 0,
+      })
+      if (error) throw error
+
+      const rows       = data ?? []
+      const totalCount = rows[0]?.total_count ?? 0
+
+      const items = rows.map(row => ({
+        id:              row.inventory_id,
+        inventory_id:    row.inventory_id,
+        product_id:      row.product_id,
+        supplier_id:     row.supplier_id,
+        qty_in_stock:    row.qty_in_stock,
+        selling_price:   row.selling_price,
+        company_price:   row.company_price,
+        reorder_level:   row.reorder_level,
+        rack_no:         row.rack_no,
+        bin_no:          row.bin_no,
+        is_genuine:      row.is_genuine,
+        discount_percent: row.discount_percent,
+        location:        row.location,
+        batch_number:    row.batch_number,
+        expiry_date:     row.expiry_date,
+        products: {
+          name:     row.product_name,
+          sku:      row.product_sku,
+          category: row.product_category,
+          unit:     row.product_unit,
+        },
+        suppliers: { name: row.supplier_name },
+      }))
+
+      return res.json({ items, total: Number(totalCount) })
+    }
+
+    // Full mode — use existing RPC that includes qty_bought/qty_sold stats
     const { data, error } = await supabase.rpc('get_inventory_with_stats')
     if (error) throw error
 
@@ -33,9 +78,7 @@ exports.list = async (req, res, next) => {
         category: row.product_category,
         unit:     row.product_unit,
       },
-      suppliers: {
-        name: row.supplier_name,
-      },
+      suppliers: { name: row.supplier_name },
     }))
 
     res.json(result)

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt, Search, Check, CreditCard, Printer, DollarSign, Banknote, Edit2 } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Play, Clock, Receipt, DollarSign, Banknote, CreditCard, Edit2, Printer } from 'lucide-react'
 import api from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -8,6 +8,7 @@ import { toast } from '@/hooks/use-toast'
 import PageHeader from '@/components/shared/PageHeader'
 import DataTable from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import ProductPickerModal from '@/components/shared/ProductPickerModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -36,7 +37,6 @@ const PAYMENT_METHOD_LABELS = {
   cheque:        'Cheque',
 }
 
-// ─── Inline toggle used for Existing / New customer and vehicle ───────────────
 function ModeToggle({ value, onChange, options }) {
   return (
     <div className="flex rounded-md border overflow-hidden text-xs">
@@ -62,7 +62,6 @@ function ModeToggle({ value, onChange, options }) {
 function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, saving }) {
   const qc = useQueryClient()
 
-  // Customer
   const [customerMode,    setCustomerMode]    = useState('existing')
   const [customerId,      setCustomerId]      = useState('')
   const [newCustName,     setNewCustName]     = useState('')
@@ -70,7 +69,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
   const [newCustEmail,    setNewCustEmail]    = useState('')
   const [newCustAddress,  setNewCustAddress]  = useState('')
 
-  // Vehicle
   const [vehicleMode,   setVehicleMode]   = useState('existing')
   const [vehicleId,     setVehicleId]     = useState('')
   const [newVehPlate,   setNewVehPlate]   = useState('')
@@ -79,7 +77,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
   const [newVehYear,    setNewVehYear]    = useState('')
   const [newVehColor,   setNewVehColor]   = useState('')
 
-  // Job fields
   const [technicianId,       setTechnicianId]       = useState('')
   const [serviceType,        setServiceType]        = useState('normal')
   const [mileageIn,          setMileageIn]          = useState('')
@@ -112,7 +109,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
     e.preventDefault()
     setLocalSaving(true)
     try {
-      // Step 1: create customer if new
       let cId = customerId || null
       if (customerMode === 'new') {
         const created = await api.post('/customers', {
@@ -125,7 +121,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
         qc.invalidateQueries({ queryKey: ['customers'] })
       }
 
-      // Step 2: create vehicle if new
       let vId = vehicleId || null
       if (vehicleMode === 'new') {
         const created = await api.post('/vehicles', {
@@ -140,7 +135,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
         qc.invalidateQueries({ queryKey: ['vehicles'] })
       }
 
-      // Step 3: create the service job
       onSave({
         customer_id:        cId,
         vehicle_id:         vId,
@@ -164,7 +158,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
         <DialogHeader><DialogTitle>New Service Job</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          {/* Service Type */}
           <div>
             <Label>Service Type</Label>
             <div className="flex gap-2 mt-1">
@@ -190,7 +183,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             )}
           </div>
 
-          {/* ── Customer section ── */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Customer</Label>
@@ -220,33 +212,20 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
                 </div>
                 <div>
                   <Label className="text-xs">Phone</Label>
-                  <Input
-                    placeholder="07X XXX XXXX"
-                    value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input placeholder="07X XXX XXXX" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} className="mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs">Email</Label>
-                  <Input
-                    type="email" placeholder="email@example.com"
-                    value={newCustEmail} onChange={(e) => setNewCustEmail(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input type="email" placeholder="email@example.com" value={newCustEmail} onChange={(e) => setNewCustEmail(e.target.value)} className="mt-1" />
                 </div>
                 <div className="col-span-2">
                   <Label className="text-xs">Address</Label>
-                  <Input
-                    placeholder="Address"
-                    value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input placeholder="Address" value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)} className="mt-1" />
                 </div>
               </div>
             )}
           </div>
 
-          {/* ── Vehicle section ── */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Vehicle</Label>
@@ -258,17 +237,9 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             </div>
 
             {vehicleMode === 'existing' ? (
-              <Select
-                value={vehicleId}
-                onValueChange={setVehicleId}
-                disabled={customerMode === 'existing' && !customerId}
-              >
+              <Select value={vehicleId} onValueChange={setVehicleId} disabled={customerMode === 'existing' && !customerId}>
                 <SelectTrigger>
-                  <SelectValue placeholder={
-                    customerMode === 'existing' && !customerId
-                      ? 'Select a customer first…'
-                      : 'Select vehicle…'
-                  } />
+                  <SelectValue placeholder={customerMode === 'existing' && !customerId ? 'Select a customer first…' : 'Select vehicle…'} />
                 </SelectTrigger>
                 <SelectContent>
                   {customerVehicles.map((v) => (
@@ -282,11 +253,7 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
               <div className="grid grid-cols-2 gap-2 p-3 rounded-md border bg-muted/30">
                 <div className="col-span-2">
                   <Label className="text-xs">Plate / Registration *</Label>
-                  <Input
-                    placeholder="e.g. ABC-1234"
-                    value={newVehPlate} onChange={(e) => setNewVehPlate(e.target.value)}
-                    required className="mt-1"
-                  />
+                  <Input placeholder="e.g. ABC-1234" value={newVehPlate} onChange={(e) => setNewVehPlate(e.target.value)} required className="mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs">Make</Label>
@@ -298,12 +265,7 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
                 </div>
                 <div>
                   <Label className="text-xs">Year</Label>
-                  <Input
-                    type="number" placeholder="2020"
-                    min="1900" max={new Date().getFullYear() + 1}
-                    value={newVehYear} onChange={(e) => setNewVehYear(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input type="number" placeholder="2020" min="1900" max={new Date().getFullYear() + 1} value={newVehYear} onChange={(e) => setNewVehYear(e.target.value)} className="mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs">Color</Label>
@@ -313,7 +275,6 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             )}
           </div>
 
-          {/* ── Technician + Mileage ── */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Assigned Technician</Label>
@@ -328,53 +289,29 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
             </div>
             <div>
               <Label>Mileage In (km)</Label>
-              <Input
-                type="number" min="0" placeholder="e.g. 45 000"
-                value={mileageIn} onChange={(e) => setMileageIn(e.target.value)}
-                className="mt-1"
-              />
+              <Input type="number" min="0" placeholder="e.g. 45 000" value={mileageIn} onChange={(e) => setMileageIn(e.target.value)} className="mt-1" />
             </div>
           </div>
 
-          {/* Customer Complaint */}
           <div>
             <Label>Customer Complaint / Symptom</Label>
-            <Textarea
-              placeholder="What the customer reported — e.g. 'engine noise at startup'"
-              value={customerComplaint}
-              onChange={(e) => setCustomerComplaint(e.target.value)}
-              rows={2} className="mt-1"
-            />
+            <Textarea placeholder="What the customer reported…" value={customerComplaint} onChange={(e) => setCustomerComplaint(e.target.value)} rows={2} className="mt-1" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Labor Description</Label>
-              <Textarea
-                placeholder="Work to be performed"
-                value={laborDescription}
-                onChange={(e) => setLaborDescription(e.target.value)}
-                rows={2} className="mt-1"
-              />
+              <Textarea placeholder="Work to be performed" value={laborDescription} onChange={(e) => setLaborDescription(e.target.value)} rows={2} className="mt-1" />
             </div>
             <div>
               <Label>Internal Notes</Label>
-              <Textarea
-                placeholder="Internal notes (not shown to customer)"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={2} className="mt-1"
-              />
+              <Textarea placeholder="Internal notes (not shown to customer)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1" />
             </div>
           </div>
 
           <div className="w-1/2">
             <Label>Estimated Labor Cost</Label>
-            <Input
-              type="number" min="0" step="0.01" placeholder="0.00"
-              value={laborCost} onChange={(e) => setLaborCost(e.target.value)}
-              className="mt-1"
-            />
+            <Input type="number" min="0" step="0.01" placeholder="0.00" value={laborCost} onChange={(e) => setLaborCost(e.target.value)} className="mt-1" />
           </div>
 
           <DialogFooter>
@@ -387,178 +324,12 @@ function NewJobModal({ open, onOpenChange, customers, vehicles, users, onSave, s
   )
 }
 
-// ─── Add Item Modal ───────────────────────────────────────────────────────────
-function StockBadge({ qty, reorderLevel }) {
-  if (qty === 0)
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Out of stock</span>
-  if (reorderLevel && qty <= reorderLevel)
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">Low · {qty}</span>
-  return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">{qty} in stock</span>
-}
-
-function AddItemModal({ open, onOpenChange, inventory, onSave, saving }) {
-  const [inventoryId, setInventoryId] = useState('')
-  const [qty,         setQty]         = useState(1)
-  const [search,      setSearch]      = useState('')
-
-  function handleOpen(isOpen) {
-    if (isOpen) { setInventoryId(''); setQty(1); setSearch('') }
-    onOpenChange(isOpen)
-  }
-
-  const sorted = [...inventory].sort((a, b) => {
-    const na = a.products?.name ?? ''
-    const nb = b.products?.name ?? ''
-    if (na !== nb) return na.localeCompare(nb)
-    return (a.suppliers?.name ?? '').localeCompare(b.suppliers?.name ?? '')
-  })
-
-  const filtered = sorted.filter((item) => {
-    const q = search.toLowerCase()
-    if (!q) return true
-    return (
-      item.products?.name?.toLowerCase().includes(q) ||
-      item.suppliers?.name?.toLowerCase().includes(q)
-    )
-  })
-
-  const selected     = inventory.find((i) => i.id === inventoryId)
-  const currentStock = selected?.qty_in_stock ?? null
-  const outOfStock   = currentStock !== null && currentStock === 0
-  const overQty      = currentStock !== null && Number(qty) > currentStock && !outOfStock
-
-  function handleSubmit(e) {
-    e.preventDefault()
-    if (!selected) return
-    onSave({
-      inventory_id: selected.id,
-      product_id:   selected.product_id,
-      qty_used:     Number(qty),
-      unit_price:   selected.selling_price,
-    })
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Add Item to Job</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Search by product or supplier…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-
-          {/* Scrollable item list */}
-          <div className="max-h-60 overflow-y-auto space-y-1 rounded-md border p-1">
-            {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No items found.</p>
-            ) : filtered.map((item) => {
-              const isSelected = inventoryId === item.id
-              const isDisabled = item.qty_in_stock === 0
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  disabled={isDisabled}
-                  onClick={() => setInventoryId(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-left transition-colors
-                    ${isSelected
-                      ? 'bg-primary/8 border border-primary/40 ring-1 ring-primary/20'
-                      : 'border border-transparent hover:bg-muted/60'}
-                    ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-                  `}
-                >
-                  {/* Left: name + supplier */}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm leading-tight">{item.products?.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{item.suppliers?.name ?? '—'}</p>
-                  </div>
-
-                  {/* Right: price + stock + check */}
-                  <div className="flex items-center gap-3 ml-4 shrink-0">
-                    <div className="text-right">
-                      <p className="font-semibold text-sm">{formatCurrency(item.selling_price)}</p>
-                      <p className="text-xs text-muted-foreground">per unit</p>
-                    </div>
-                    <StockBadge qty={item.qty_in_stock} reorderLevel={item.reorder_level} />
-                    {isSelected
-                      ? <Check className="h-4 w-4 text-primary shrink-0" />
-                      : <div className="h-4 w-4 shrink-0" />
-                    }
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Extra details for selected item */}
-          {selected && (
-            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs grid grid-cols-2 gap-x-6 gap-y-1">
-              {selected.batch_number && (
-                <><span className="text-muted-foreground">Batch #</span><span>{selected.batch_number}</span></>
-              )}
-              {selected.expiry_date && (
-                <><span className="text-muted-foreground">Expiry</span><span>{formatDate(selected.expiry_date)}</span></>
-              )}
-              {selected.rack_no && (
-                <><span className="text-muted-foreground">Location</span>
-                <span>Rack {selected.rack_no}{selected.bin_no ? ` · Bin ${selected.bin_no}` : ''}</span></>
-              )}
-              {selected.is_genuine === false && (
-                <span className="col-span-2 text-orange-600 font-medium">⚠ Non-genuine part</span>
-              )}
-            </div>
-          )}
-
-          {/* Quantity row + live subtotal */}
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <Label>Quantity *</Label>
-              <Input
-                type="number" min="1"
-                max={currentStock ?? undefined}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                required className="mt-1"
-              />
-              {overQty && (
-                <p className="text-xs text-destructive mt-1">Exceeds available stock ({currentStock}).</p>
-              )}
-            </div>
-            {selected && !outOfStock && Number(qty) > 0 && (
-              <div className="text-right pb-0.5 shrink-0">
-                <p className="text-xs text-muted-foreground">Subtotal</p>
-                <p className="text-base font-semibold">{formatCurrency(Number(qty) * selected.selling_price)}</p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving || !inventoryId || outOfStock || overQty}>
-              {saving ? 'Adding…' : 'Add Item'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 // ─── Payment Modal ────────────────────────────────────────────────────────────
 function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTotal, onConfirm, saving }) {
-  const [method, setMethod]       = useState(job?.payment_method ?? '')
+  const [method,    setMethod]    = useState(job?.payment_method ?? '')
   const [reference, setReference] = useState(job?.payment_reference ?? '')
-  const [tendered, setTendered]   = useState(job?.amount_tendered ?? '')
+  const [tendered,  setTendered]  = useState(job?.amount_tendered ?? '')
 
-  // Reset fields when modal opens (pre-fill for edit mode)
   const handleOpen = (v) => {
     if (v) {
       setMethod(job?.payment_method ?? '')
@@ -568,9 +339,9 @@ function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTo
     onOpenChange(v)
   }
 
-  const change        = method === 'cash' ? (Number(tendered) || 0) - grandTotal : 0
+  const change           = method === 'cash' ? (Number(tendered) || 0) - grandTotal : 0
   const cashInsufficient = method === 'cash' && (Number(tendered) || 0) < grandTotal
-  const canConfirm    = !!method && !cashInsufficient
+  const canConfirm       = !!method && !cashInsufficient
 
   const handleConfirm = () => {
     onConfirm({
@@ -594,7 +365,6 @@ function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTo
           <DialogTitle>Collect Payment — {job?.job_number}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 text-sm">
-          {/* Invoice summary */}
           <div className="rounded-md border divide-y text-sm">
             <div className="flex justify-between px-3 py-2 text-muted-foreground">
               <span>Parts subtotal</span><span>{formatCurrency(partsTotal)}</span>
@@ -607,7 +377,6 @@ function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTo
             </div>
           </div>
 
-          {/* Payment method selector */}
           <div className="space-y-1.5">
             <Label>Payment Method</Label>
             <div className="grid grid-cols-2 gap-2">
@@ -628,46 +397,32 @@ function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTo
             </div>
           </div>
 
-          {/* Method-specific fields */}
           {method === 'cash' && (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="tendered">Amount Tendered</Label>
-                <Input
-                  id="tendered"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="0.00"
-                  value={tendered}
-                  onChange={(e) => setTendered(e.target.value)}
-                />
+                <Input id="tendered" type="number" min={0} step="0.01" placeholder="0.00" value={tendered} onChange={(e) => setTendered(e.target.value)} />
               </div>
               {Number(tendered) > 0 && (
-                <div className={`flex justify-between px-3 py-2 rounded-md font-semibold ${
-                  change >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                }`}>
+                <div className={`flex justify-between px-3 py-2 rounded-md font-semibold ${change >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                   <span>{change >= 0 ? 'Change Due' : 'Amount Short'}</span>
                   <span>{formatCurrency(Math.abs(change))}</span>
                 </div>
               )}
             </div>
           )}
-
           {method === 'card' && (
             <div className="space-y-1.5">
               <Label htmlFor="ref">Card Reference / Last 4 Digits <span className="text-muted-foreground">(optional)</span></Label>
               <Input id="ref" placeholder="e.g. 4242" value={reference} onChange={(e) => setReference(e.target.value)} />
             </div>
           )}
-
           {method === 'bank_transfer' && (
             <div className="space-y-1.5">
               <Label htmlFor="ref">Bank Reference No. <span className="text-muted-foreground">(optional)</span></Label>
               <Input id="ref" placeholder="e.g. TXN-123456" value={reference} onChange={(e) => setReference(e.target.value)} />
             </div>
           )}
-
           {method === 'cheque' && (
             <div className="space-y-1.5">
               <Label htmlFor="ref">Cheque Number <span className="text-muted-foreground">(optional)</span></Label>
@@ -690,30 +445,23 @@ function PaymentModal({ open, onOpenChange, job, partsTotal, laborTotal, grandTo
 function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, grandTotal }) {
   const j = job
   if (!j) return null
-
-  const handlePrint = () => window.print()
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Receipt — {j.invoice_number ?? j.job_number}</DialogTitle>
         </DialogHeader>
-
-        {/* Printable receipt */}
         <div id="receipt-printable" className="space-y-3 text-sm font-mono">
           <div className="text-center border-b pb-3">
             <p className="font-bold text-base">VEHICLE SERVICE CENTER</p>
             <p className="text-xs text-muted-foreground">Invoice No: {j.invoice_number ?? '—'}</p>
             <p className="text-xs text-muted-foreground">Date: {formatDate(j.payment_date ?? j.created_at)}</p>
           </div>
-
           <div className="space-y-0.5 text-xs">
             <div className="flex gap-2"><span className="text-muted-foreground w-20">Customer:</span><span className="font-medium">{j.customers?.name ?? '—'}</span></div>
             <div className="flex gap-2"><span className="text-muted-foreground w-20">Vehicle:</span><span className="font-medium">{j.vehicles?.registration_number ?? '—'}</span></div>
             <div className="flex gap-2"><span className="text-muted-foreground w-20">Job No:</span><span className="font-medium">{j.job_number}</span></div>
           </div>
-
           <div className="border-t pt-2">
             <p className="font-semibold mb-1 text-xs uppercase tracking-wide text-muted-foreground">Parts</p>
             <table className="w-full text-xs">
@@ -739,7 +487,6 @@ function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, 
               </tbody>
             </table>
           </div>
-
           <div className="border-t divide-y text-xs">
             <div className="flex justify-between py-1 text-muted-foreground">
               <span>Parts subtotal</span><span>{formatCurrency(partsTotal)}</span>
@@ -757,7 +504,6 @@ function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, 
               <span>TOTAL</span><span>{formatCurrency(grandTotal)}</span>
             </div>
           </div>
-
           <div className="border-t pt-2 text-xs space-y-0.5">
             <div className="flex gap-2"><span className="text-muted-foreground w-24">Payment:</span><span className="capitalize">{PAYMENT_METHOD_LABELS[j.payment_method] ?? j.payment_method ?? '—'}</span></div>
             {j.payment_method === 'cash' && j.amount_tendered != null && (
@@ -770,16 +516,14 @@ function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, 
               <div className="flex gap-2"><span className="text-muted-foreground w-24">Reference:</span><span>{j.payment_reference}</span></div>
             )}
           </div>
-
           <div className="border-t pt-3 text-center text-xs text-muted-foreground">
             <p>Thank you for your business!</p>
             <p>Please retain this receipt for your records.</p>
           </div>
         </div>
-
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={handlePrint} className="gap-1.5">
+          <Button onClick={() => window.print()} className="gap-1.5">
             <Printer className="h-4 w-4" /> Print Receipt
           </Button>
         </DialogFooter>
@@ -789,13 +533,13 @@ function ReceiptModal({ open, onOpenChange, job, items, partsTotal, laborTotal, 
 }
 
 // ─── Job Detail Modal ─────────────────────────────────────────────────────────
-function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
+function JobDetailModal({ job, open, onOpenChange }) {
   const qc = useQueryClient()
   const { role } = useAuthStore()
-  const [addItemModal,    setAddItemModal]    = useState(false)
-  const [removeTarget,    setRemoveTarget]    = useState(null)
-  const [paymentModal,    setPaymentModal]    = useState(false)
-  const [receiptModal,    setReceiptModal]    = useState(false)
+  const [addItemModal, setAddItemModal] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState(null)
+  const [paymentModal, setPaymentModal] = useState(false)
+  const [receiptModal, setReceiptModal] = useState(false)
 
   const { data: detail } = useQuery({
     queryKey: ['service-job', job?.id],
@@ -808,7 +552,6 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['service-job', job.id] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      setAddItemModal(false)
       toast({ title: 'Item added', variant: 'success' })
     },
     onError: (err) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
@@ -857,21 +600,20 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
   const canAct    = ['admin', 'manager', 'technician'].includes(role)
   const canModify = canAct && ['open', 'in_progress'].includes(j?.status)
 
-  // Derive which status-transition buttons to show
   const statusActions = []
   if (j?.status === 'estimate' && canAct)
-    statusActions.push({ label: 'Open Job',           nextStatus: 'open',             Icon: CheckCircle, variant: 'default'  })
+    statusActions.push({ label: 'Open Job',          nextStatus: 'open',             Icon: CheckCircle, variant: 'default' })
   if (j?.status === 'open' && canAct) {
-    statusActions.push({ label: 'Start Job',          nextStatus: 'in_progress',      Icon: Play,        variant: 'default'  })
-    statusActions.push({ label: 'Waiting for Parts',  nextStatus: 'waiting_for_parts',Icon: Clock,       variant: 'outline'  })
+    statusActions.push({ label: 'Start Job',          nextStatus: 'in_progress',      Icon: Play,        variant: 'default' })
+    statusActions.push({ label: 'Waiting for Parts',  nextStatus: 'waiting_for_parts',Icon: Clock,       variant: 'outline' })
   }
   if (j?.status === 'in_progress' && canAct) {
-    statusActions.push({ label: 'Waiting for Parts',  nextStatus: 'waiting_for_parts',Icon: Clock,       variant: 'outline'  })
+    statusActions.push({ label: 'Waiting for Parts',  nextStatus: 'waiting_for_parts',Icon: Clock,       variant: 'outline' })
     if (canManage)
-      statusActions.push({ label: 'Mark Complete',    nextStatus: 'completed',        Icon: CheckCircle, variant: 'default'  })
+      statusActions.push({ label: 'Mark Complete',    nextStatus: 'completed',        Icon: CheckCircle, variant: 'default' })
   }
   if (j?.status === 'waiting_for_parts' && canAct)
-    statusActions.push({ label: 'Resume Job',         nextStatus: 'in_progress',      Icon: Play,        variant: 'default'  })
+    statusActions.push({ label: 'Resume Job',         nextStatus: 'in_progress',      Icon: Play,        variant: 'default' })
   if (j?.status === 'completed' && canManage)
     statusActions.push({ label: 'Mark Invoiced', nextStatus: 'invoiced', Icon: Receipt, variant: 'default' })
 
@@ -886,7 +628,6 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
           </DialogHeader>
           <div className="space-y-4 text-sm">
 
-            {/* Header info grid */}
             <div className="grid grid-cols-2 gap-2">
               <div><span className="text-muted-foreground">Customer:</span> <span className="font-medium">{j?.customers?.name ?? '—'}</span></div>
               <div className="flex items-center gap-2"><span className="text-muted-foreground">Status:</span> {statusBadge(j?.status)}</div>
@@ -903,7 +644,6 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
               )}
             </div>
 
-            {/* Customer complaint */}
             {j?.customer_complaint && (
               <div className="rounded-md bg-muted/50 border px-3 py-2">
                 <p className="text-xs text-muted-foreground font-medium mb-0.5">Customer Complaint</p>
@@ -935,9 +675,7 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
                   <tbody>
                     {items.length === 0 ? (
                       <tr>
-                        <td colSpan={canModify ? 5 : 4} className="px-3 py-4 text-center text-muted-foreground">
-                          No items yet.
-                        </td>
+                        <td colSpan={canModify ? 5 : 4} className="px-3 py-4 text-center text-muted-foreground">No items yet.</td>
                       </tr>
                     ) : items.map((it) => (
                       <tr key={it.id} className="border-t">
@@ -947,10 +685,7 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
                         <td className="px-3 py-2 text-right">{formatCurrency(it.qty_used * it.unit_price)}</td>
                         {canModify && (
                           <td className="px-3 py-2">
-                            <button
-                              onClick={() => setRemoveTarget(it)}
-                              className="text-destructive hover:opacity-80"
-                            >
+                            <button onClick={() => setRemoveTarget(it)} className="text-destructive hover:opacity-80">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -965,21 +700,17 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
             {/* Cost summary */}
             <div className="rounded-md border divide-y text-sm">
               <div className="flex justify-between px-3 py-2 text-muted-foreground">
-                <span>Parts subtotal</span>
-                <span>{formatCurrency(partsTotal)}</span>
+                <span>Parts subtotal</span><span>{formatCurrency(partsTotal)}</span>
               </div>
               <div className="flex justify-between px-3 py-2 text-muted-foreground">
                 <div>
                   <span>Labor</span>
-                  {j?.labor_description && (
-                    <p className="text-xs italic">{j.labor_description}</p>
-                  )}
+                  {j?.labor_description && <p className="text-xs italic">{j.labor_description}</p>}
                 </div>
                 <span>{formatCurrency(laborTotal)}</span>
               </div>
               <div className="flex justify-between px-3 py-2 font-semibold">
-                <span>Total</span>
-                <span>{formatCurrency(grandTotal)}</span>
+                <span>Total</span><span>{formatCurrency(grandTotal)}</span>
               </div>
               {j?.status === 'paid' && j?.payment_method && (
                 <div className="flex justify-between px-3 py-2 text-muted-foreground bg-green-50/50">
@@ -993,25 +724,14 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
               )}
             </div>
 
-            {/* Internal notes */}
-            {j?.notes && (
-              <p className="text-xs text-muted-foreground italic">{j.notes}</p>
-            )}
+            {j?.notes && <p className="text-xs text-muted-foreground italic">{j.notes}</p>}
 
             {/* Status action buttons */}
             {(statusActions.length > 0 || j?.status === 'invoiced' || j?.status === 'paid') && (
               <div className="flex gap-2 flex-wrap pt-1">
                 {statusActions.map(({ label, nextStatus, Icon, variant }) => (
-                  <Button
-                    key={nextStatus}
-                    variant={variant}
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => statusMutation.mutate(nextStatus)}
-                    disabled={statusMutation.isPending}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
+                  <Button key={nextStatus} variant={variant} size="sm" className="gap-1.5" onClick={() => statusMutation.mutate(nextStatus)} disabled={statusMutation.isPending}>
+                    <Icon className="h-3.5 w-3.5" />{label}
                   </Button>
                 ))}
                 {j?.status === 'invoiced' && canManage && (
@@ -1037,12 +757,16 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
         </DialogContent>
       </Dialog>
 
-      <AddItemModal
+      <ProductPickerModal
         open={addItemModal}
         onOpenChange={setAddItemModal}
-        inventory={inventory}
-        onSave={(data) => addItemMutation.mutate(data)}
-        saving={addItemMutation.isPending}
+        title="Add Item to Job"
+        onAdd={(picked) => addItemMutation.mutate({
+          inventory_id: picked.inventory_id,
+          product_id:   picked.product_id,
+          qty_used:     picked.qty,
+          unit_price:   picked.unit_price,
+        })}
       />
 
       <ConfirmDialog
@@ -1083,19 +807,17 @@ function JobDetailModal({ job, open, onOpenChange, products, inventory }) {
 export default function ServiceJobs() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
-  const [newModal,      setNewModal]      = useState(false)
-  const [detailJob,     setDetailJob]     = useState(null)
-  const [statusFilter,  setStatusFilter]  = useState('all')
+  const [newModal,     setNewModal]     = useState(false)
+  const [detailJob,    setDetailJob]    = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [typeFilter,   setTypeFilter]   = useState('all')
+  const [dateFrom,     setDateFrom]     = useState('')
+  const [dateTo,       setDateTo]       = useState('')
 
-  const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['service-jobs'],
-    queryFn:  () => api.get('/service-jobs'),
-  })
+  const { data: jobs = [], isLoading } = useQuery({ queryKey: ['service-jobs'], queryFn: () => api.get('/service-jobs') })
   const { data: customers = [] } = useQuery({ queryKey: ['customers'], queryFn: () => api.get('/customers') })
   const { data: vehicles  = [] } = useQuery({ queryKey: ['vehicles'],  queryFn: () => api.get('/vehicles')  })
   const { data: users     = [] } = useQuery({ queryKey: ['users'],     queryFn: () => api.get('/users')     })
-  const { data: products  = [] } = useQuery({ queryKey: ['products'],  queryFn: () => api.get('/products')  })
-  const { data: inventory = [] } = useQuery({ queryKey: ['inventory'], queryFn: () => api.get('/inventory') })
 
   const createMutation = useMutation({
     mutationFn: (data) => api.post('/service-jobs', data),
@@ -1108,7 +830,17 @@ export default function ServiceJobs() {
   })
 
   const canCreate = ['admin', 'manager', 'technician'].includes(role)
-  const filtered  = statusFilter === 'all' ? jobs : jobs.filter((j) => j.status === statusFilter)
+
+  const filtered = useMemo(() => {
+    return jobs.filter((j) => {
+      if (statusFilter !== 'all' && j.status !== statusFilter) return false
+      if (typeFilter   !== 'all' && j.service_type !== typeFilter) return false
+      const d = (j.job_date ?? j.created_at ?? '').slice(0, 10)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo   && d > dateTo)   return false
+      return true
+    })
+  }, [jobs, statusFilter, typeFilter, dateFrom, dateTo])
 
   const columns = [
     { key: 'job_number',   label: 'Job #',    render: (r) => <span className="font-medium">{r.job_number ?? r.id?.slice(0, 8)}</span> },
@@ -1119,11 +851,7 @@ export default function ServiceJobs() {
     { key: 'created_at',   label: 'Opened',   render: (r) => formatDate(r.created_at) },
     {
       key: 'actions', label: '', headerClass: 'w-12',
-      render: (r) => (
-        <Button size="icon" variant="ghost" onClick={() => setDetailJob(r)}>
-          <Eye className="h-4 w-4" />
-        </Button>
-      ),
+      render: (r) => <Button size="icon" variant="ghost" onClick={() => setDetailJob(r)}><Eye className="h-4 w-4" /></Button>,
     },
   ]
 
@@ -1148,19 +876,53 @@ export default function ServiceJobs() {
           searchPlaceholder="Search by job number, customer or vehicle…"
           searchKeys={['job_number']}
           filterSlot={
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="estimate">Estimate</SelectItem>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="waiting_for_parts">Waiting for Parts</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="invoiced">Invoiced</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap gap-2 items-center">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="estimate">Estimate</SelectItem>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="waiting_for_parts">Waiting for Parts</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="invoiced">Invoiced</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="mechanical">Mechanical</SelectItem>
+                  <SelectItem value="estimate">Estimate</SelectItem>
+                </SelectContent>
+              </Select>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="From date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="To date"
+              />
+              {(dateFrom || dateTo || typeFilter !== 'all' || statusFilter !== 'all') && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); setTypeFilter('all'); setStatusFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           }
           emptyMessage="No service jobs found."
         />
@@ -1181,8 +943,6 @@ export default function ServiceJobs() {
           job={detailJob}
           open={!!detailJob}
           onOpenChange={(open) => !open && setDetailJob(null)}
-          products={products}
-          inventory={inventory}
         />
       )}
     </div>

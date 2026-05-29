@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, ChevronDown, ChevronRight, Car } from 'lucide-react'
+import { Plus, Pencil, ChevronDown, ChevronRight, Car, Search } from 'lucide-react'
 import api from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -171,13 +171,24 @@ function CustomerVehicles({ customerId }) {
 export default function Customers() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
-  const [modal, setModal] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
+  const [modal,       setModal]       = useState(null)
+  const [expandedId,  setExpandedId]  = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ['customers'],
     queryFn: () => api.get('/customers'),
   })
+
+  const filteredCustomers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return customers
+    return customers.filter((c) =>
+      (c.name ?? '').toLowerCase().includes(q) ||
+      (c.phone ?? '').toLowerCase().includes(q) ||
+      (c.email ?? '').toLowerCase().includes(q)
+    )
+  }, [customers, searchQuery])
 
   const saveMutation = useMutation({
     mutationFn: (data) => modal?.customer?.id
@@ -231,6 +242,21 @@ export default function Customers() {
       {isLoading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
       ) : (
+        <div className="space-y-3">
+          <div className="relative max-w-xs">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, phone or email…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          {filteredCustomers.length > 0 && searchQuery && (
+            <p className="text-xs text-muted-foreground">
+              {filteredCustomers.length} of {customers.length} customer{customers.length !== 1 ? 's' : ''}
+            </p>
+          )}
         <div className="rounded-md border overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
@@ -243,10 +269,10 @@ export default function Customers() {
               </tr>
             </thead>
             <tbody>
-              {customers.length === 0 ? (
+              {filteredCustomers.length === 0 ? (
                 <tr><td colSpan={cols.length} className="px-4 py-8 text-center text-muted-foreground">No customers found.</td></tr>
               ) : (
-                customers.flatMap((row) => {
+                filteredCustomers.flatMap((row) => {
                   const rows = [
                     <tr key={row.id} className="border-t hover:bg-muted/30 transition-colors">
                       {cols.map((col) => (
@@ -270,6 +296,7 @@ export default function Customers() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 

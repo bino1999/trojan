@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Link, Unlink } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Link, Unlink, Search } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from '@/hooks/use-toast'
@@ -149,14 +149,31 @@ function LinkedProducts({ supplierId }) {
 export default function Suppliers() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
-  const [modal, setModal] = useState(null)
+  const [modal,        setModal]        = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
+  const [expandedId,   setExpandedId]   = useState(null)
+  const [searchQuery,  setSearchQuery]  = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => api.get('/suppliers'),
   })
+
+  const filteredSuppliers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return suppliers.filter((s) => {
+      if (statusFilter === 'active'   && s.is_active === false) return false
+      if (statusFilter === 'inactive' && s.is_active !== false) return false
+      if (!q) return true
+      return (
+        (s.name ?? '').toLowerCase().includes(q) ||
+        (s.contact_person ?? '').toLowerCase().includes(q) ||
+        (s.phone ?? '').toLowerCase().includes(q) ||
+        (s.email ?? '').toLowerCase().includes(q)
+      )
+    })
+  }, [suppliers, searchQuery, statusFilter])
 
   const saveMutation = useMutation({
     mutationFn: (data) => modal?.supplier?.id
@@ -232,6 +249,40 @@ export default function Suppliers() {
       {isLoading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>
       ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, contact, phone or email…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            {(searchQuery || statusFilter !== 'all') && (
+              <button
+                onClick={() => { setSearchQuery(''); setStatusFilter('all') }}
+                className="text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {filteredSuppliers.length > 0 && (searchQuery || statusFilter !== 'all') && (
+            <p className="text-xs text-muted-foreground">
+              {filteredSuppliers.length} of {suppliers.length} supplier{suppliers.length !== 1 ? 's' : ''}
+            </p>
+          )}
         <div className="rounded-md border overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
@@ -244,12 +295,12 @@ export default function Suppliers() {
               </tr>
             </thead>
             <tbody>
-              {suppliers.length === 0 ? (
+              {filteredSuppliers.length === 0 ? (
                 <tr>
                   <td colSpan={cols.length} className="px-4 py-8 text-center text-muted-foreground">No suppliers found.</td>
                 </tr>
               ) : (
-                suppliers.flatMap((row) => {
+                filteredSuppliers.flatMap((row) => {
                   const rows = [
                     <tr key={row.id} className="border-t hover:bg-muted/30 transition-colors">
                       {cols.map((col) => (
@@ -273,6 +324,7 @@ export default function Suppliers() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 

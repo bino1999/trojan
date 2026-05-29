@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Eye, Search, Check, CreditCard, Banknote, DollarSign, Receipt, Printer } from 'lucide-react'
+import { Plus, Eye, CreditCard, Banknote, DollarSign, Receipt, Printer } from 'lucide-react'
 import api from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import { toast } from '@/hooks/use-toast'
 import PageHeader from '@/components/shared/PageHeader'
 import DataTable from '@/components/shared/DataTable'
+import ProductPickerModal from '@/components/shared/ProductPickerModal'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -21,175 +22,9 @@ const PAYMENT_METHOD_LABELS = {
   cheque: 'Cheque',
 }
 
-// ─── StockBadge ────────────────────────────────────────────────────────────────
-
-function StockBadge({ qty, reorderLevel }) {
-  if (qty === 0)
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Out of stock</span>
-  if (reorderLevel && qty <= reorderLevel)
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">Low · {qty}</span>
-  return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">{qty} in stock</span>
-}
-
-// ─── AddItemModal ───────────────────────────────────────────────────────────────
-
-function AddItemModal({ open, onOpenChange, inventory, onAdd }) {
-  const [selectedId, setSelectedId] = useState('')
-  const [qty, setQty]               = useState(1)
-  const [search, setSearch]         = useState('')
-
-  function handleOpen(isOpen) {
-    if (isOpen) { setSelectedId(''); setQty(1); setSearch('') }
-    onOpenChange(isOpen)
-  }
-
-  const sorted = [...inventory].sort((a, b) => {
-    const na = a.products?.name ?? ''
-    const nb = b.products?.name ?? ''
-    if (na !== nb) return na.localeCompare(nb)
-    return (a.suppliers?.name ?? '').localeCompare(b.suppliers?.name ?? '')
-  })
-
-  const filtered = sorted.filter((item) => {
-    const q = search.toLowerCase()
-    if (!q) return true
-    return (
-      item.products?.name?.toLowerCase().includes(q) ||
-      item.suppliers?.name?.toLowerCase().includes(q)
-    )
-  })
-
-  const selected     = inventory.find((i) => i.id === selectedId)
-  const currentStock = selected?.qty_in_stock ?? null
-  const outOfStock   = currentStock !== null && currentStock === 0
-  const overQty      = currentStock !== null && Number(qty) > currentStock && !outOfStock
-  const subtotal     = selected && Number(qty) > 0 ? Number(qty) * (selected.selling_price ?? 0) : null
-
-  function handleSubmit(e) {
-    e.preventDefault()
-    if (!selected) return
-    onAdd({
-      inventory_id:  selected.id,
-      product_id:    selected.product_id,
-      qty_sold:      Number(qty),
-      unit_price:    selected.selling_price,
-      product_name:  selected.products?.name ?? '',
-      supplier_name: selected.suppliers?.name ?? '',
-    })
-    handleOpen(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
-        <DialogHeader><DialogTitle>Add Item to Sale</DialogTitle></DialogHeader>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by product or supplier…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        {/* Inventory list */}
-        <div className="flex-1 overflow-y-auto space-y-2 min-h-0 pr-1">
-          {filtered.length === 0 && (
-            <p className="text-center text-muted-foreground text-sm py-8">No items match your search.</p>
-          )}
-          {filtered.map((item) => {
-            const isSelected = item.id === selectedId
-            const disabled   = item.qty_in_stock === 0
-            return (
-              <button
-                key={item.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => { setSelectedId(item.id); setQty(1) }}
-                className={[
-                  'w-full text-left rounded-md border px-3 py-2.5 transition-colors',
-                  isSelected
-                    ? 'border-primary bg-primary/5'
-                    : disabled
-                    ? 'opacity-40 cursor-not-allowed border-border'
-                    : 'border-border hover:bg-muted/50 cursor-pointer',
-                ].join(' ')}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{item.products?.name ?? '—'}</p>
-                    <p className="text-xs text-muted-foreground truncate">{item.suppliers?.name ?? 'Unknown supplier'}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold">{formatCurrency(item.selling_price)}</p>
-                      <p className="text-xs text-muted-foreground">per unit</p>
-                    </div>
-                    <StockBadge qty={item.qty_in_stock} reorderLevel={item.reorder_level} />
-                    {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
-                  </div>
-                </div>
-
-                {/* Selected item extra details */}
-                {isSelected && (
-                  <div className="mt-2 pt-2 border-t flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {item.batch_number && <span>Batch: {item.batch_number}</span>}
-                    {item.expiry_date  && <span>Expires: {formatDate(item.expiry_date)}</span>}
-                    {(item.rack_no || item.bin_no) && <span>Location: {[item.rack_no && `Rack ${item.rack_no}`, item.bin_no && `Bin ${item.bin_no}`].filter(Boolean).join(' · ')}</span>}
-                    {item.is_genuine === false && <span className="text-amber-600">⚠ Non-genuine part</span>}
-                  </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Qty + confirm */}
-        {selected && (
-          <form onSubmit={handleSubmit} className="border-t pt-3 space-y-3">
-            <div className="flex items-center gap-3">
-              <Label className="shrink-0">Quantity</Label>
-              <Input
-                type="number"
-                min={1}
-                max={currentStock ?? undefined}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                className="w-24"
-              />
-              {overQty && (
-                <p className="text-xs text-destructive">Exceeds available stock ({currentStock})</p>
-              )}
-              {subtotal !== null && !overQty && (
-                <p className="ml-auto text-sm font-semibold">Subtotal: {formatCurrency(subtotal)}</p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={outOfStock || overQty || Number(qty) < 1}>
-                Add Item
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-        {!selected && (
-          <div className="border-t pt-3">
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleOpen(false)}>Cancel</Button>
-            </DialogFooter>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 // ─── NewSaleModal ───────────────────────────────────────────────────────────────
 
-function NewSaleModal({ open, onOpenChange, customers, inventory, items, setItems, onProceed }) {
+function NewSaleModal({ open, onOpenChange, customers, items, setItems, onProceed }) {
   const [customerId,  setCustomerId]  = useState('none')
   const [notes,       setNotes]       = useState('')
   const [addItemOpen, setAddItemOpen] = useState(false)
@@ -199,7 +34,15 @@ function NewSaleModal({ open, onOpenChange, customers, inventory, items, setItem
     onOpenChange(isOpen)
   }
 
-  function addItem(item) {
+  function addItem(picked) {
+    const item = {
+      inventory_id:  picked.inventory_id,
+      product_id:    picked.product_id,
+      qty_sold:      picked.qty,
+      unit_price:    picked.unit_price,
+      product_name:  picked.product_name,
+      supplier_name: picked.supplier_name,
+    }
     setItems((prev) => {
       const idx = prev.findIndex((i) => i.inventory_id === item.inventory_id)
       if (idx >= 0) {
@@ -306,10 +149,10 @@ function NewSaleModal({ open, onOpenChange, customers, inventory, items, setItem
         </DialogContent>
       </Dialog>
 
-      <AddItemModal
+      <ProductPickerModal
         open={addItemOpen}
         onOpenChange={setAddItemOpen}
-        inventory={inventory}
+        title="Add Item to Sale"
         onAdd={addItem}
       />
     </>
@@ -475,7 +318,6 @@ function ReceiptModal({ open, onOpenChange, saleId }) {
           <p className="text-center text-muted-foreground text-sm py-8">Loading receipt…</p>
         ) : (
           <div id="receipt-printable" className="space-y-3 text-sm font-mono">
-            {/* Header */}
             <div className="text-center border-b pb-3">
               <p className="font-bold text-base">VEHICLE SERVICE CENTER</p>
               {sale.invoice_number && (
@@ -487,7 +329,6 @@ function ReceiptModal({ open, onOpenChange, saleId }) {
               </p>
             </div>
 
-            {/* Customer */}
             <div className="text-xs space-y-0.5">
               <div className="flex gap-2">
                 <span className="text-muted-foreground w-20">Customer:</span>
@@ -495,7 +336,6 @@ function ReceiptModal({ open, onOpenChange, saleId }) {
               </div>
             </div>
 
-            {/* Items */}
             <div className="border-t pt-2">
               <table className="w-full text-xs">
                 <thead>
@@ -519,7 +359,6 @@ function ReceiptModal({ open, onOpenChange, saleId }) {
               </table>
             </div>
 
-            {/* Total */}
             <div className="border-t">
               <div className="flex justify-between py-1 font-bold text-sm">
                 <span>TOTAL</span>
@@ -527,7 +366,6 @@ function ReceiptModal({ open, onOpenChange, saleId }) {
               </div>
             </div>
 
-            {/* Payment details */}
             <div className="border-t pt-2 text-xs space-y-0.5">
               <div className="flex gap-2">
                 <span className="text-muted-foreground w-24">Payment:</span>
@@ -639,17 +477,29 @@ export default function Sales() {
   const { role } = useAuthStore()
   const qc = useQueryClient()
 
-  const [newModal,         setNewModal]         = useState(false)
-  const [paymentModal,     setPaymentModal]     = useState(false)
-  const [receiptModal,     setReceiptModal]     = useState(false)
-  const [pendingSale,      setPendingSale]      = useState(null)
-  const [completedSaleId,  setCompletedSaleId]  = useState(null)
-  const [pendingItems,     setPendingItems]     = useState([])
-  const [detailSale,       setDetailSale]       = useState(null)
+  const [newModal,        setNewModal]        = useState(false)
+  const [paymentModal,    setPaymentModal]    = useState(false)
+  const [receiptModal,    setReceiptModal]    = useState(false)
+  const [pendingSale,     setPendingSale]     = useState(null)
+  const [completedSaleId, setCompletedSaleId] = useState(null)
+  const [pendingItems,    setPendingItems]    = useState([])
+  const [detailSale,      setDetailSale]      = useState(null)
+  const [dateFrom,        setDateFrom]        = useState('')
+  const [dateTo,          setDateTo]          = useState('')
+  const [paymentFilter,   setPaymentFilter]   = useState('all')
 
   const { data: sales = [], isLoading } = useQuery({ queryKey: ['sales'],     queryFn: () => api.get('/sales') })
   const { data: customers = [] }        = useQuery({ queryKey: ['customers'], queryFn: () => api.get('/customers') })
-  const { data: inventory = [] }        = useQuery({ queryKey: ['inventory'], queryFn: () => api.get('/inventory') })
+
+  const filteredSales = useMemo(() => {
+    return sales.filter((s) => {
+      const d = (s.sale_date ?? s.created_at ?? '').slice(0, 10)
+      if (dateFrom && d < dateFrom) return false
+      if (dateTo   && d > dateTo)   return false
+      if (paymentFilter !== 'all' && s.payment_method !== paymentFilter) return false
+      return true
+    })
+  }, [sales, dateFrom, dateTo, paymentFilter])
 
   const createMutation = useMutation({
     mutationFn: (data) => api.post('/sales', data),
@@ -720,10 +570,48 @@ export default function Sales() {
       ) : (
         <DataTable
           columns={columns}
-          data={sales}
+          data={filteredSales}
           searchPlaceholder="Search by sale or invoice number…"
           searchKeys={['sale_number', 'invoice_number']}
           emptyMessage="No sales yet."
+          filterSlot={
+            <div className="flex flex-wrap gap-2 items-center">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="From date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                title="To date"
+              />
+              <select
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="all">All Payments</option>
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+              </select>
+              {(dateFrom || dateTo || paymentFilter !== 'all') && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); setPaymentFilter('all') }}
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          }
         />
       )}
 
@@ -731,7 +619,6 @@ export default function Sales() {
         open={newModal}
         onOpenChange={setNewModal}
         customers={customers}
-        inventory={inventory}
         items={pendingItems}
         setItems={setPendingItems}
         onProceed={handleProceed}
